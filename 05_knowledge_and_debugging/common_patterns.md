@@ -90,3 +90,71 @@ tags: [patterns, failures, categories, recurring, classification]
 - **Cause**: `output/` symlinked to GK build owned by `sleadmin`, mode 750
 - **General Fix**: `chmod -R g+w` on specific directories (requires GK owner or admin)
 - **Related Bugs**: BUG-028
+
+## Runtime & Test Execution Patterns (from ai_picker_sle Reference Methodologies)
+
+### Pattern 14: SAGV/DVFS Memory Corruption
+- **Phase:** TEST_EXECUTION
+- **Symptoms:** memory corruption, sagv, dvfs, frequency transition, undefined_opcode, exception, address_misalignment, gear_shift, read_zero, data_mismatch
+- **Description:** Memory corruption, address misalignment, or CPU exceptions occurring during System Agent Gear/Voltage (SAGV) or frequency transition events. The root cause is often DFI timing violations during gear shifts, not instruction bugs.
+- **Detection:** CPU exception + DVFS/SAGV event within 50ms in `PyDoh.Sequence.log`
+- **Key Logs:** `PyDoh.Sequence.log`, `DEBUG`, `uop_log*.log`, `cfi_trk.log`, LPDDR5 logs
+- **Heuristic:** If `dvfsq` appears in `PyDoh.Sequence.log` near the failure timestamp → likely SAGV-related corruption, not a core issue
+- **Related Bugs:** (none in bundle1106 yet — document if encountered)
+
+### Pattern 15: Mailbox Timeout / Pcode Communication Failure
+- **Phase:** TEST_EXECUTION
+- **Symptoms:** mailbox, timeout, pcode, 0xdead, request, response, hang, communication, p24c, gt_driver
+- **Description:** Test writes to a mailbox interface (e.g., GT P24C) but pCode firmware never sees or responds to the request. Often caused by writing to non-existent/misconfigured interface or wrong mailbox address.
+- **Detection:** `0xdead` error code in test output or `pcode_jem_tracker.log`
+- **Key Logs:** `pcode_jem_tracker.log`, `testbench.log`, `PyDoh.Agent.log`
+- **Heuristic:** Check if the mailbox address is valid for the current DUT configuration. P24C mailbox issues often indicate a test targeting wrong interface.
+- **Time to Root Cause:** 20-45 minutes
+
+### Pattern 16: Boot FSM Hang (Security/Protocol)
+- **Phase:** RUNTIME
+- **Symptoms:** boot, hang, fsm, security, protocol, sb_link, secure, handshake, timeout
+- **Description:** Boot FSM gets stuck at a security handshake or sideband link training state. The DUT cannot complete its boot sequence because a protocol handshake never completes.
+- **Detection:** `bootfsm_state_tracker.log.gz` shows stuck at SECURE/LINK state; `iosf_sb_jem_tracker.log.gz` shows large time gap (>100K ps) between last transaction and current time.
+- **Key Logs:** `bootfsm_state_tracker.log.gz`, `iosf_sb_jem_tracker.log.gz`, `*BFM.log`
+- **Heuristic:** If BFM logs show "unsupported" messages → configuration mismatch between model and BFM. If no BFM warnings → check CFI/sideband for protocol deadlock.
+
+### Pattern 17: TLM_POST SVA Assertion Failure (Multi-Stage Deception)
+- **Phase:** POST_PROCESS
+- **Symptoms:** TLM_POST, sva_post_proc, SVA_ASSERTION_ERROR, assertion, multi-stage
+- **Description:** A deceptive pattern where emulation stage reports "Test PASSED" but post-processing (TLM_POST) detects SVA assertion violations, making the overall result FAILED. Engineers often waste hours confused because emurun.log says PASSED.
+- **Detection:** `emurun.log` shows PASSED, `logbook.log` shows "Post processing" FAIL, `assertion_failures.log` or `zse_assertions.log` contain errors
+- **Key Logs:** `logbook.log`, `assertion_failures.log`, `zse_assertions.log`, `emurun.log`
+- **Heuristic:** ALWAYS check logbook stage table, not just emurun. Test execution stages: Build → Emulation → RPT → Post Processing → SVA Check. ALL must pass.
+
+### Pattern 18: LPDDR5 Signal Alignment / DFI Timing
+- **Phase:** TEST_EXECUTION
+- **Symptoms:** lpddr5, ddr, memory, read, write, dfi, signal, alignment, timing, data_mismatch, calibration, training
+- **Description:** Memory READ/WRITE operations fail intermittently (e.g., "every second READ") due to DFI signals being misaligned between data and valid/enable signals. Common root cause: `write_lat_adjust` or `read_lat_adjust` set incorrectly.
+- **Detection:** Intermittent memory errors, especially periodic patterns (every 2nd or 4th access)
+- **Key Logs:** LPDDR5 logs, `DEBUG`, `testbench.log`
+- **Heuristic:** If memory failures show periodic pattern → suspect DFI latency adjustment. Check `write_lat_adjust` and `read_lat_adjust` register values.
+
+### Pattern 19: Model Build Force Error
+- **Phase:** BUILD
+- **Symptoms:** force, error, build, fail, elaboration, hierarchical_path, type_mismatch, compilation, syntax, dpi
+- **Description:** Model build fails due to issues with `force` statements in SystemVerilog. Force statements override signal values but improper usage causes build-time or elaboration errors (incorrect hierarchical path, type mismatch, forcing optimized-away signals).
+- **Detection:** Build log contains "force.*signal.*error" or "force.*not.*found" or "hierarchical path" errors
+- **Key Logs:** `build.log`, `emurun.log`, `compile.log`
+- **Heuristic:** Check if the forced signal path exists in the elaborated design. Signals may be optimized away or renamed during synthesis.
+
+### Pattern 20: Register Read Uninitialized
+- **Phase:** TEST_EXECUTION
+- **Symptoms:** register, read, uninitialized, random, replicate, assignment
+- **Description:** Register reads return random/unexpected values because the register was never properly initialized in the emulation model. Often caused by `replicate()` vs `fill()` operator confusion in test code, or missing register initialization in boot sequence.
+- **Detection:** SelfCheck failures with unexpected register values that change between runs (random seed dependent)
+- **Key Logs:** `testbench.log`, `uop_log*.log`, register access logs
+- **Heuristic:** If register value changes across runs with different seeds → likely uninitialized. Check boot sequence for missing register writes.
+
+### Pattern 21: SelfCheck Counter / Interrupt Handler Mismatch
+- **Phase:** TEST_EXECUTION
+- **Symptoms:** selfcheck, interrupt, count, handler, vector, mismatch, registration, conflict
+- **Description:** SelfCheck fails because interrupt count doesn't match expected value. Root cause: multiple interrupt handlers registered for the same vector, causing double-counting or missed interrupts.
+- **Detection:** SelfCheck error message with "interrupt count" or "handler count" mismatch
+- **Key Logs:** `uop_log*.log`, `testbench.log`, `DEBUG`
+- **Heuristic:** Check for duplicate handler registration in test code. Look for multiple `register_handler(vector_N)` calls with the same vector number. Also check if PM_INIT and CREATE_SMI both register SMI handlers.

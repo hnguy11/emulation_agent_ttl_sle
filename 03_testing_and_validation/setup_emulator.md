@@ -80,3 +80,79 @@ regression/nvlsi7_n2p/doa_pkg_ghpf_model_zse5.list.N/
 └── spacex_mobile/
     └── (same structure)
 ```
+
+## ZeBu Runtime Debugging (Extracted from ai_picker_sle Reference)
+
+### 1. Environment Variable Extraction
+When debugging a test, extract key variables from `.trex.env` in the test directory:
+
+```bash
+# Extract test context from .trex.env
+grep -E "^(TESTNAME|WORKAREA|CTH_TOOL_OVERRIDE_FILE_MAESTRO)=" .trex.env
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `TESTNAME` | Name of the test being executed |
+| `WORKAREA` | Build workspace root path (model location) |
+| `CTH_TOOL_OVERRIDE_FILE_MAESTRO` | Maestro tool override file for this test |
+
+### 2. Test File Locations
+- `perspec_test.c` — If it's a Perspec (CDNS) test, this is the C source file
+- `$TESTNAME.lst` — Compilation result of the C file, includes all LIPs for processors
+
+### 3. Plugin Failure Detection
+Check emulation plugins loaded correctly:
+
+```bash
+# Check for plugin failures in emurun.log
+grep -i "plugin.*reported.*failed\|plugin.*error\|plugin.*fail" emurun.log
+
+# Check VIP setup
+grep -i "VIP.*fail\|VIP.*error" PyDoh.*.log 2>/dev/null | head -3
+
+# Check for LogScanner failures
+grep -i "LogScanner.*fail\|validator.*error" emurun.log | head -3
+```
+
+Plugin failures indicate EMU_SETUP phase problems — the emulation environment itself failed to initialize.
+
+### 4. Emulation Phase Progression Markers
+Track progress through emulation phases:
+
+| Phase | Log Evidence | Normal Duration |
+|-------|-------------|-----------------|
+| Model load | `emurun.log`: "Loading model..." | 5-15 min |
+| Boot | `bootfsm_state_tracker.log.gz`: FSM state progression | 30-60 min |
+| Test execution | `uop_log*.log`: `[PERSPEC] N` incrementing | Test-dependent |
+| Post-processing | `logbook.log`: "Creating RPT", "Post processing" | 30-60 min |
+
+### 5. Copilot CLI Path
+The GitHub Copilot CLI is available at:
+```
+/p/hdk/cad/copilot/latest/copilot
+```
+This is the execution path for invoking the Copilot agent from within the Intel infrastructure.
+
+### 6. NFS Path Quirks
+- **Symlinked output dirs:** `output/` may be a symlink to a GK build on a different NFS mount (e.g., `ive_nvl_efs_gk_002`). Check with `readlink -f output/` and verify permissions.
+- **Cross-site rsync:** FM boards at Folsom write logs locally; rsync to ZSC11 NFS happens post-job. During active emulation, local logs are invisible to ZSC11.
+- **Kerberos on NFS:** Long-running jobs (>24h) can outlive Kerberos tickets. Renew with `kinit -R` before job submission for queue waits.
+- **Disk capacity:** Check before builds: `df -h /nfs/site/disks/ive_sle_zsc11_tbaziza | tail -1` (builds need 50-100GB)
+
+### 7. ZSE5 Board Monitoring
+When jobs are running on FM ZSE5 boards:
+
+```bash
+# Check NB job status
+nbq -u $USER 2>/dev/null | head -20
+
+# Check FM job status (if FM job ID known)
+nbq -u $USER -c fm 2>/dev/null | grep <FM_JOB_ID>
+
+# Check logbook for progress (remember: frozen during offline rsync mode is NORMAL!)
+ls -la regression/.../logbook.log*
+stat --format='%Y' regression/.../logbook.log 2>/dev/null
+```
+
+**CRITICAL:** In `-offline_rsync_wo_nb` mode, logbook stays frozen during active emulation. This is NORMAL (see BUG-030). Do NOT kill jobs because logbook appears stale.
