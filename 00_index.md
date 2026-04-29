@@ -34,6 +34,8 @@ the `pkg_ghpf_model` Zebu ZSE5 emulation model for the `nvlsi7_n2p` DUT. It is d
 | Monitor a long-running build/test | `04_monitoring/metrics_definition.md` |
 | Something seems stuck/hung | `04_monitoring/alert_thresholds.md` |
 | Debug a build/test failure | `05_knowledge_and_debugging/debug_workflow.md` |
+| Auto-detect failure phase | `05_knowledge_and_debugging/run_phase_detection_nvlax.sh` |
+| Expand symptoms from logs | `05_knowledge_and_debugging/symptom_rules.txt` |
 | Search known bugs | `05_knowledge_and_debugging/known_bugs_and_fixes/` (34 files) |
 | Recognize a failure pattern | `05_knowledge_and_debugging/common_patterns.md` |
 | Document a new bug | `05_knowledge_and_debugging/bug_template.md` + `documentation_rules.md` |
@@ -58,11 +60,13 @@ NVL_AX_agent_workspace/
 │   ├── metrics_definition.md            # What to monitor (CPU, mem, logs)
 │   └── alert_thresholds.md              # When to intervene
 └── 05_knowledge_and_debugging/          # Living knowledge base
-    ├── debug_workflow.md                # Log analysis &amp; troubleshooting
-    ├── common_patterns.md               # 11 recurring failure categories
-    ├── documentation_rules.md           # Standards for writing docs
+    ├── debug_workflow.md                # Log analysis, phase detection &amp; triage
+    ├── common_patterns.md               # 21 recurring failure categories
+    ├── documentation_rules.md           # Standards + methodology creation protocol
+    ├── symptom_rules.txt               # Conditional symptom extraction config
+    ├── run_phase_detection_nvlax.sh    # Automated phase detection script
     └── known_bugs_and_fixes/            # 34 individual bug reports
-        ├── bug_template.md              # Template for new bugs
+        ├── bug_template.md              # Template with scoring headers
         └── BUG-001..034_*.md            # One file per bug
 ```
 

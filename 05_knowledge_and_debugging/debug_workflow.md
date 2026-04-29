@@ -239,3 +239,283 @@ When tracing a stuck LIP (Last Instruction Pointer) or uCode execution issue, us
   ```
 
 **How to use:** When a `guop_tracker` or `lip_tracker` log shows a processor stuck at a specific LIP address, grep the corresponding `.ulst.clean` file for that address to identify the uCode instruction being executed.
+
+---
+
+## Full Triage Bash Commands
+
+Runnable bash snippets for phased failure triage. All commands use standard `grep`/`zgrep` (no dependency on `log_scanner`). Run these from a test directory:
+```
+cd regression/nvlsi7_n2p/doa_pkg_ghpf_model_zse5.list.N/<test>/
+```
+
+### Method 1: logbook.log Stage Table Parsing (most reliable — 30 seconds max)
+
+```bash
+# Parse stage table from logbook.log
+if [[ -f logbook.log.gz ]]; then
+  echo "=== Phase Detection from logbook.log ==="
+  zgrep -A 20 "Stage.*Elapsed.*Status" logbook.log.gz | tail -10
+elif [[ -f logbook.log ]]; then
+  grep -A 20 "Stage.*Elapsed.*Status" logbook.log | tail -10
+fi
+
+# Decision:
+#   "Test build" FAIL       → PHASE: BUILD
+#   "Model run" FAIL        → needs Method 2
+#   "Post processing" FAIL  → PHASE: POST_PROCESS
+#   All PASS but test FAIL  → PHASE: POST_PROCESS (validation issue)
+```
+
+### Method 2: emurun.log Analysis (fallback — 45 seconds max)
+
+Use when logbook shows "Model run" FAIL or is unavailable.
+
+```bash
+echo "=== Checking emurun.log for phase clues ==="
+
+# Build-related errors
+BUILD_ERRORS=$(grep -i "force.*error\|compile.*fail\|syntax.*error\|cannot find.*file\|\.sv:\|\.v:\|vlog:" emurun.log 2>/dev/null | head -3)
+
+# Plugin / setup errors
+SETUP_ERRORS=$(grep -i "plugin.*fail\|plugin.*reported.*error\|LogScanner.*fail\|validator.*error" emurun.log 2>/dev/null | head -3)
+
+# Runtime errors
+RUNTIME_ERRORS=$(grep -i "timeout\|WMTRUN\|simulation.*stop\|fatal.*error" emurun.log 2>/dev/null | head -3)
+
+if [[ -n "$BUILD_ERRORS" ]]; then
+  echo "PHASE: BUILD"
+  echo "Evidence: $BUILD_ERRORS"
+elif [[ -n "$SETUP_ERRORS" ]]; then
+  echo "PHASE: EMU_SETUP"
+  echo "Evidence: $SETUP_ERRORS"
+elif [[ -n "$RUNTIME_ERRORS" ]]; then
+  echo "PHASE: RUNTIME or TEST_EXECUTION (needs Method 3)"
+else
+  echo "PHASE: TEST_EXECUTION (no errors in emurun.log)"
+fi
+```
+
+### Method 3: Boot vs Test Execution Distinction (15 seconds max)
+
+Use only when Method 2 identified runtime errors. Checks `bootfsm_state_tracker` to distinguish an incomplete boot (RUNTIME) from a DUT bug during test (TEST_EXECUTION).
+
+```bash
+echo "=== Distinguishing RUNTIME vs TEST_EXECUTION ==="
+
+if [[ -f bootfsm_state_tracker.log.gz ]]; then
+  LAST_BOOT_STATE=$(zcat bootfsm_state_tracker.log.gz | tail -n 1 | awk '{print $4}')
+
+  if echo "$LAST_BOOT_STATE" | grep -q -i "INIT\|SECURE\|LINK\|TRAIN\|BOOT"; then
+    echo "PHASE: RUNTIME (boot incomplete at $LAST_BOOT_STATE)"
+  else
+    echo "PHASE: TEST_EXECUTION (boot completed)"
+  fi
+elif [[ -f bootfsm_state_tracker.log ]]; then
+  LAST_BOOT_STATE=$(tail -n 1 bootfsm_state_tracker.log | awk '{print $4}')
+  echo "$LAST_BOOT_STATE" | grep -q -i "INIT\|SECURE\|LINK\|TRAIN\|BOOT" \
+    && echo "PHASE: RUNTIME (boot incomplete)" \
+    || echo "PHASE: TEST_EXECUTION (boot completed)"
+else
+  # No boot tracker — check for test execution markers
+  if ls uop_log*.log &>/dev/null; then
+    grep -q "\[PERSPEC\]" uop_log*.log 2>/dev/null \
+      && echo "PHASE: TEST_EXECUTION (test started)" \
+      || echo "PHASE: RUNTIME (no test execution detected)"
+  else
+    echo "PHASE: RUNTIME (assumed — no execution logs)"
+  fi
+fi
+```
+
+### Phase-Specific Quick Analysis Blocks
+
+After detecting the phase, run the matching block below to collect symptoms.
+
+#### BUILD (30 seconds max)
+
+```bash
+echo "=== BUILD Phase — Collecting Symptoms ==="
+SYMPTOMS=""
+
+FORCE_ERRORS=$(grep -i "force.*signal.*error\|force.*not.*found" emurun.log 2>/dev/null | head -2)
+[[ -n "$FORCE_ERRORS" ]] && SYMPTOMS="$SYMPTOMS force_signal_error"
+
+FILE_ERRORS=$(grep -i "no such file\|cannot find.*file\|path.*error" emurun.log 2>/dev/null | head -2)
+[[ -n "$FILE_ERRORS" ]] && SYMPTOMS="$SYMPTOMS file_not_found"
+
+SYNTAX_ERRORS=$(grep -i "syntax error\|compile.*fail\|vlog.*error" emurun.log 2>/dev/null | head -2)
+[[ -n "$SYNTAX_ERRORS" ]] && SYMPTOMS="$SYMPTOMS compile_error syntax_error"
+
+MISSING=$(grep -i "unknown signal\|module.*not found\|undefined" emurun.log 2>/dev/null | head -2)
+[[ -n "$MISSING" ]] && SYMPTOMS="$SYMPTOMS missing_signal missing_module"
+
+echo "BUILD Symptoms: $SYMPTOMS"
+```
+
+#### EMU_SETUP (30 seconds max)
+
+```bash
+echo "=== EMU_SETUP Phase — Collecting Symptoms ==="
+SYMPTOMS=""
+
+PLUGIN_ERRORS=$(grep -i "plugin.*fail\|plugin.*error" emurun.log 2>/dev/null | head -2)
+[[ -n "$PLUGIN_ERRORS" ]] && SYMPTOMS="$SYMPTOMS plugin_failure"
+
+[[ -f testbench.log ]] && {
+  TB_ERRORS=$(grep -i "error\|fail\|exception" testbench.log 2>/dev/null | head -3)
+  [[ -n "$TB_ERRORS" ]] && SYMPTOMS="$SYMPTOMS testbench_error"
+}
+
+VIP_ERRORS=$(grep -i "VIP.*fail\|VIP.*error" PyDoh*.log 2>/dev/null | head -2)
+[[ -n "$VIP_ERRORS" ]] && SYMPTOMS="$SYMPTOMS vip_failure"
+
+VALIDATOR_ERRORS=$(grep -i "validator.*fail\|LogScanner.*error" emurun.log 2>/dev/null | head -2)
+[[ -n "$VALIDATOR_ERRORS" ]] && SYMPTOMS="$SYMPTOMS validator_failure"
+
+echo "EMU_SETUP Symptoms: $SYMPTOMS"
+```
+
+#### RUNTIME (40 seconds max)
+
+```bash
+echo "=== RUNTIME Phase — Collecting Symptoms ==="
+SYMPTOMS=""
+
+# Boot state
+if [[ -f bootfsm_state_tracker.log.gz ]]; then
+  LAST_STATE=$(zcat bootfsm_state_tracker.log.gz | tail -n 1 | awk '{print $4}')
+  SYMPTOMS="$SYMPTOMS boot_hang"
+  echo "$LAST_STATE" | grep -q -i "SECURE" && SYMPTOMS="$SYMPTOMS security_state"
+  echo "$LAST_STATE" | grep -q -i "LINK\|TRAIN" && SYMPTOMS="$SYMPTOMS link_training"
+fi
+
+# BFM warnings (protocol issues)
+BFM_WARNINGS=$(grep -i "unsupported\|ignored\|warning" *BFM*.log 2>/dev/null | head -2)
+[[ -n "$BFM_WARNINGS" ]] && SYMPTOMS="$SYMPTOMS bfm_warning protocol_mismatch"
+
+# Timeout
+TIMEOUT=$(grep -i "timeout\|WMTRUN" emurun.log 2>/dev/null | head -1)
+[[ -n "$TIMEOUT" ]] && SYMPTOMS="$SYMPTOMS timeout"
+
+echo "RUNTIME Symptoms: $SYMPTOMS"
+```
+
+#### TEST_EXECUTION (45 seconds max)
+
+```bash
+echo "=== TEST_EXECUTION Phase — Collecting Symptoms ==="
+SYMPTOMS=""
+
+# Exceptions
+EXCEPTION=$(grep -i "exception\|exiting due to" DEBUG uop_log*.log 2>/dev/null | head -2)
+if [[ -n "$EXCEPTION" ]]; then
+  SYMPTOMS="$SYMPTOMS exception"
+  echo "$EXCEPTION" | grep -q -i "page.*fault\|#PF" && SYMPTOMS="$SYMPTOMS page_fault"
+  echo "$EXCEPTION" | grep -q -i "general.*protect\|#GP" && SYMPTOMS="$SYMPTOMS gp_fault"
+fi
+
+# Memory corruption
+CORRUPTION=$(grep -i "0xdead\|memcheck\|corruption\|expected.*actual" DEBUG uop_log*.log 2>/dev/null | head -2)
+[[ -n "$CORRUPTION" ]] && SYMPTOMS="$SYMPTOMS memory_corruption"
+
+# DVFS / SAGV
+DVFS=$(grep -i "dvfsq\|sagv" PyDoh.Sequence.log 2>/dev/null | tail -3)
+[[ -n "$DVFS" ]] && SYMPTOMS="$SYMPTOMS dvfs sagv power_state"
+
+# Mailbox timeout
+MAILBOX=$(grep -i "mailbox.*timeout\|pcode.*timeout" DEBUG pcode_jem_tracker*.log* 2>/dev/null | head -2)
+[[ -n "$MAILBOX" ]] && SYMPTOMS="$SYMPTOMS mailbox_timeout pcode"
+
+echo "TEST_EXECUTION Symptoms: $SYMPTOMS"
+```
+
+#### POST_PROCESS (20 seconds max)
+
+```bash
+echo "=== POST_PROCESS Phase — Collecting Symptoms ==="
+SYMPTOMS="post_process validation"
+
+if [[ -f logbook.log.gz ]]; then
+  VALIDATION=$(zgrep -A 5 "Post processing" logbook.log.gz | grep -i "error\|fail")
+  [[ -n "$VALIDATION" ]] && echo "Validation failure: $VALIDATION"
+elif [[ -f logbook.log ]]; then
+  VALIDATION=$(grep -A 5 "Post processing" logbook.log | grep -i "error\|fail")
+  [[ -n "$VALIDATION" ]] && echo "Validation failure: $VALIDATION"
+fi
+
+SYMPTOMS="$SYMPTOMS checker_fail"
+echo "POST_PROCESS Symptoms: $SYMPTOMS"
+```
+
+---
+
+## I Feel Lucky Scoring Algorithm
+
+Automated scoring system that ranks BUG files against a detected failure. Given a phase and symptom list, each BUG file is scored using the weighted signals below and the highest-scoring BUG is recommended.
+
+### Signal Weights
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| Exact tag match | **+50 pts** | BUG file tag exactly matches DDT bucket |
+| Category match | **+30 pts** | BUG file category matches failure type |
+| Partial tag match | **+25 pts** | ≥50% token overlap with failure symptoms |
+| Critical symptom | **+10 pts** | High-priority error terms (timeout, hang, crash) |
+| Phase match | **+5 pts** | BUG file phase matches detected failure phase |
+| **Phase mismatch** | **×0.5 penalty** | Wrong phase **halves** the entire score |
+| Regular symptom | **+3 pts** | Standard symptom match |
+
+### Confidence Thresholds
+
+| Score Range | Confidence | Typical Pattern |
+|-------------|------------|-----------------|
+| ≥ 200 | **VERY HIGH** | 3+ exact tag matches + phase match |
+| 100–199 | **VERY HIGH** | 2 exact matches + partials |
+| 50–99 | **HIGH** | 1 exact match + symptoms |
+| 30–49 | **MEDIUM** | Category match + symptoms |
+| 15–29 | **MEDIUM** | Symptom-only matches |
+| < 15 | **LOW** | Minimal match |
+
+### Phase Mismatch Warning
+
+> ⚠️ If a BUG file's phase does **not** match the detected phase, the entire score is **halved** (×0.5).
+> This is the #1 reason good matches get missed — always verify phase before trusting a score.
+
+```
+Example:
+  BUG-045 base score = 120 pts
+  Detected phase = RUNTIME, BUG-045 phase = POST_PROCESS
+  Final score = 120 × 0.5 = 60 pts  →  drops from rank #1 to rank #5+
+```
+
+### Real-World NVL-AX Example
+
+**Scenario:** `spacedoa_mobile` fails with exit code 66.
+
+| Step | Detail |
+|------|--------|
+| Detected phase | `RUNTIME` (Kerberos expired before emulation could connect) |
+| Matching BUG file | `BUG-033` — Kerberos ticket expiry |
+| BUG-033 phase | `RUNTIME` ✅ |
+| BUG-033 symptoms | `kerberos expired rsync ssh` |
+
+**Score breakdown:**
+
+| Signal | Points |
+|--------|--------|
+| Phase match | +5 |
+| Exact tag `kerberos` | +50 |
+| Critical symptom `expired` | +10 |
+| **Total** | **65 pts → HIGH confidence** |
+
+### How to Use
+
+For automated scoring, run the phase-detection + scoring script:
+
+```bash
+cd regression/nvlsi7_n2p/doa_pkg_ghpf_model_zse5.list.N/<test>/
+../../scripts/run_phase_detection_nvlax.sh
+```
+
+The script outputs ranked BUG files with scores and confidence levels. See `run_phase_detection_nvlax.sh` for implementation details.

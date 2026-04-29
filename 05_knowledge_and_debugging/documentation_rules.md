@@ -69,3 +69,74 @@ Every bug file MUST use the template from `bug_template.md`:
 - [ ] Fix commands are copy-paste ready (absolute paths where needed)
 - [ ] Verification step is included
 - [ ] Related patterns are cross-referenced
+
+## Methodology Creation Protocol
+
+When a novel failure is encountered (no existing BUG file or common pattern matches), follow this 6-step creation flow adapted from the ai_picker_sle methodology system:
+
+### Step 1: Gather Evidence
+Read the test logs and extract:
+- Primary symptom (the error that made the test fail)
+- Root cause (why it happened — determined through debug)
+- Trigger pattern (exact log strings that identify this failure)
+- Log files used (which logs were critical for diagnosis)
+
+### Step 2: Check Existing KB
+Before creating a new file, search:
+```bash
+grep -rl "symptom_keyword" /nfs/site/disks/ive_sle_zsc11_tbaziza/NVL_AX_agent_workspace/05_knowledge_and_debugging/known_bugs_and_fixes/
+grep -i "symptom_keyword" /nfs/site/disks/ive_sle_zsc11_tbaziza/NVL_AX_agent_workspace/05_knowledge_and_debugging/common_patterns.md
+```
+If a match exists → update the existing file rather than creating a duplicate.
+
+### Step 3: Create Bug File with Scoring Headers
+Use `bug_template.md` and MUST include:
+- `phase:` — the failure phase (BUILD/EMU_SETUP/RUNTIME/TEST_EXECUTION/POST_PROCESS)
+- `symptoms:` — 5-10 keywords from the error logs
+- `keywords:` — 3-5 high-level concepts
+- `trackers:` — log files where symptoms appear
+
+### Step 4: Validate Scoring
+Run the phase detection script against the original failing test:
+```bash
+/nfs/site/disks/ive_sle_zsc11_tbaziza/NVL_AX_agent_workspace/05_knowledge_and_debugging/run_phase_detection_nvlax.sh <test_directory>
+```
+The new bug file should rank in the **top 3** for its source test failure.
+
+### Step 5: Update Pattern Database
+If the failure is generalizable, add a new entry to `common_patterns.md`:
+```markdown
+## Pattern N: Short Name
+- **Symptom**: What you see
+- **Cause**: Why it happens
+- **General Fix**: How to fix it
+- **Related Bugs**: BUG-NNN
+```
+
+### Step 6: Cross-Reference
+- Update `commands_reference.md` if new commands were discovered
+- Add links from the new bug file to related bugs
+- Commit changes to git with descriptive message
+
+### Symptom Selection Guidelines
+
+**Good symptoms** (specific, searchable):
+- Error codes: `0xdead`, `0x90`, `exit_66`
+- Component names: `mailbox`, `lpddr5`, `cfi`, `bootfsm`
+- Failure modes: `timeout`, `hang`, `corruption`, `mismatch`
+- Test-specific: test name keywords
+
+**Bad symptoms** (too generic, match everything):
+- `error`, `fail`, `test`, `issue`, `problem`
+
+**Optimal count**: 5-10 symptoms per bug file
+
+### Phase Selection Guide
+
+| When does the failure occur? | Phase |
+|------------------------------|-------|
+| Before simulation starts (compilation, testbench setup) | `BUILD` |
+| Simulation setup (plugin loading, VIP init) | `EMU_SETUP` |
+| During boot (boot FSM, security handshake) | `RUNTIME` |
+| After boot, during test code execution | `TEST_EXECUTION` |
+| After test ends (validation, checkers, SVA) | `POST_PROCESS` |

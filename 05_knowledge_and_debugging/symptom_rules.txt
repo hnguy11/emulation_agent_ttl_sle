@@ -1,0 +1,55 @@
+# NVL-AX Symptom Extraction Rules
+# Adapted from ai_picker_sle/GHCP/prompts/global_files/symptom_rules.txt
+#
+# Format: trigger_symptom1,trigger_symptom2 | log_pattern1,log_pattern2 | keyword1,keyword2,keyword3
+#
+# When trigger symptom(s) appear in initial scan, search the specified log
+# patterns for the extraction keywords to expand the symptom set.
+# Lines starting with # are comments.
+
+# Mailbox issues → search pcode logs for request/response patterns
+mailbox,timeout | pcode*,ptracker* | request,response,command,status,interface
+
+# Memory issues → search DDR/memory logs for corruption indicators
+memory,corruption,lpddr5 | *lpddr*,*ddr*,*memss* | read,write,timing,dfi,training,alignment
+
+# Boot hangs → search boot FSM and security logs
+boot,hang,fsm | bootfsm*,*security*,cfi* | state,secure,protocol,handshake,link
+
+# Power state issues → search power/global logs
+sagv,dvfs,pstate | *power*,*pstate*,*frequency*,global* | frequency,voltage,transition,ratio,w4
+
+# Exception issues → search processor logs
+exception,crash,0xdead | uop_log*,guop* | instruction,opcode,address,register,core
+
+# Protocol issues → search fabric/sideband logs
+protocol,d2d,ucie | cfi_trk*,*fabric*,iosf* | transaction,header,payload,credit,flow
+
+# Security issues → search CFI and sideband logs
+security,cfi,sideband | cfi*,*sideband*,sb_link* | authentication,key,secure,handshake
+
+# --- NVL-AX Specific Rules ---
+
+# Kerberos / infrastructure → search emurun and test setup logs
+kerberos,expired,password | emurun*,logbook* | kinit,ticket,ssh,rsync,authentication,exit_66
+
+# Library / RPATH → search emurun for missing library errors
+rpath,library,ldd | emurun*,testbench* | not_found,symlink,libstdc,readline,tinfo,ld_preload
+
+# Permissions → search emurun for access denied
+permission,chmod,access | emurun*,testbench* | denied,readonly,group,ownership,writable
+
+# ZeBu board / hardware → search emurun for board connection issues
+zebu,board,zse5 | emurun*,PyDoh* | connection,hardware,fpga,plugin,zrdb,timeout
+
+# Simregress / test submission → check logbook for submission errors
+simregress,submission,qslot | logbook*,emurun* | queue,slot,resource,trex,dispatch
+
+# Shebang / script errors → search build logs
+shebang,interpreter,script | build*,emurun*,compile* | usr_bin,env,bash,python,perl,csh
+
+# Build force errors → search emurun for signal forcing failures
+force,signal,compile | emurun*,build*,compile* | vlog,syntax,missing,path,module,instantiation
+
+# Assertion / SVA failures → search post-processing logs
+assertion,sva,tlm_post | assertion*,zse_assertion*,ddt* | violation,checker,selfcheck,mismatch,signature

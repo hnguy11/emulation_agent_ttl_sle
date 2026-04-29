@@ -158,3 +158,13 @@ tags: [patterns, failures, categories, recurring, classification]
 - **Detection:** SelfCheck error message with "interrupt count" or "handler count" mismatch
 - **Key Logs:** `uop_log*.log`, `testbench.log`, `DEBUG`
 - **Heuristic:** Check for duplicate handler registration in test code. Look for multiple `register_handler(vector_N)` calls with the same vector number. Also check if PM_INIT and CREATE_SMI both register SMI handlers.
+
+---
+
+## Phase Detection Scoring Reference
+
+Each pattern above can be matched by the automated phase detection system. To improve scoring:
+1. Ensure related BUG files have proper `phase:` and `symptoms:` fields in YAML frontmatter
+2. Symptoms should be unique keywords from log files (not generic "error"/"fail")
+3. Phase must match: BUILD, EMU_SETUP, RUNTIME, TEST_EXECUTION, or POST_PROCESS
+4. Run `run_phase_detection_nvlax.sh` to validate scoring against real test failures

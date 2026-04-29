@@ -63,6 +63,12 @@ tags: [commands, shell, reference, grdlbuild, simregress, nbstatus]
 | `ls output/.../zse5/.shadow/ \| wc -l` | Count completed stages (19 = all done) |
 | `file output/.../readmem.dump` | Verify readmem.dump is regular file |
 
+## Debug / Triage
+
+| Command | What It Does |
+|---------|-------------|
+| `bash 05_knowledge_and_debugging/run_phase_detection_nvlax.sh [TEST_DIR] [TOP_N]` | Detect failure phase from logbook.log, score BUG-NNN files against symptoms, output top matches |
+
 ## Path Variables (for substitution in commands above)
 - `<LOGDIR>` = `output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/log/<TIMESTAMP>/`
 - `<ZSE5_DIR>` = `output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5`
