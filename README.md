@@ -79,16 +79,46 @@ That's it. You're ready to go.
 
 ## 🔄 How It Works
 
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  Step 1      │    │  Step 2      │    │  Step 3      │    │  Step 4      │
-│  COMPILE     │───▶│  POST-BUILD  │───▶│  DOA TEST    │───▶│  DEBUG       │
-│  grdlbuild   │    │  post_zcui   │    │  simregress  │    │  57 bugs KB  │
-│  6 checks ✓  │    │  fix_libs ✓  │    │  5 checks ✓  │    │  auto-match  │
-└─────────────┘    └─────────────┘    └─────────────┘    └──────┬──────┘
-                                                                │
-                                           fix applied ◀────────┘
-                                           re-run from Step 1 or 3
+```mermaid
+graph LR
+    subgraph S1["🔨 Step 1: COMPILE"]
+        A1["grdlbuild"]
+        A2["6 pass checks ✓"]
+        A1 --> A2
+    end
+
+    subgraph S2["🔧 Step 2: POST-BUILD"]
+        B1["post_zcui"]
+        B2["fix_zse5_libs.sh ✓"]
+        B1 --> B2
+    end
+
+    subgraph S3["🧪 Step 3: DOA TEST"]
+        C1["simregress"]
+        C2["5 pass checks ✓"]
+        C1 --> C2
+    end
+
+    subgraph S4["🐛 Step 4: DEBUG"]
+        D1["Detect phase"]
+        D2["Collect symptoms"]
+        D3["Match 57 bugs"]
+        D4["Apply fix"]
+        D1 --> D2 --> D3 --> D4
+    end
+
+    S1 -->|"pass"| S2
+    S2 --> S3
+    S3 -->|"pass ✅"| DONE["🎉 Done"]
+    S1 -->|"fail"| S4
+    S3 -->|"fail"| S4
+    D4 -.->|"🔁 fix applied — re-run"| A1
+
+    style S1 fill:#1e3a5f,stroke:#4a9eff,color:#fff
+    style S2 fill:#2d4a2d,stroke:#6abf69,color:#fff
+    style S3 fill:#4a3a1e,stroke:#f0ad4e,color:#fff
+    style S4 fill:#5a1e1e,stroke:#ff6b6b,color:#fff
+    style DONE fill:#2d6b2d,stroke:#5cb85c,color:#fff
 ```
 
 ---
