@@ -88,7 +88,7 @@ That's it. You're ready to go.
 flowchart TD
     START([🚀 Start]) --> COMPILE
 
-    COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild\n14 build stages · ~50 hrs\n6 pass checks"]
+    COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild\n14 build stages · ~30 hrs\n6 pass checks"]
     COMPILE -->|"✅ pass"| POSTBUILD
 
     POSTBUILD["🔧 STEP 2 — POST-BUILD\n━━━━━━━━━━━━━━━━━━━━━\npost_zcui\nlibrary symlink repair"]
