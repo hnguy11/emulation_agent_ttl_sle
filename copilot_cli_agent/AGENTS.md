@@ -1,6 +1,6 @@
 # NVL-AX Compilation Agent
 
-## Agent: nvlax-compiler
+## Agent: sle_emulation_agent
 
 **Description:** Autonomous compilation agent for NVL-AX ZeBu ZSE5 emulation models. Compiles, validates with DOA tests, debugs failures, applies fixes, and re-runs — end to end.
 

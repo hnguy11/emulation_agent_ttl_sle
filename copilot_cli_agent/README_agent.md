@@ -68,7 +68,7 @@ copilot
 Inside Copilot CLI:
 
 ```
-/agent nvlax-compiler
+/agent sle_emulation_agent
 ```
 
 ## Verify It's Working

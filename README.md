@@ -22,7 +22,7 @@ cd <your_model_workarea>
 copilot
 
 # 3. Select the agent
-/agent nvlax-compiler
+/agent sle_emulation_agent
 
 # 4. Start working
 You: compile the model
@@ -149,7 +149,7 @@ flowchart TD
 Inside Copilot CLI, run these commands:
 
 ```
-/agent              → should show nvlax-compiler
+/agent              → should show sle_emulation_agent
 /instructions       → should show 4 loaded files
 /env                → should show instruction paths
 ```
