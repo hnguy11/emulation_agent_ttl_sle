@@ -1,6 +1,6 @@
 ---
 name: sle_emulation_agent
-description: "Autonomous compilation agent for NVL-AX ZeBu ZSE5 emulation models. Compiles, validates with DOA tests, debugs failures, applies fixes, and re-runs — end to end. Use when asked to compile, build, run DOA tests, debug compilation or test failures, or anything related to NVL-AX model integration. Triggers: compile, build, grdlbuild, DOA test, simregress, emulation model, ZSE5, ZeBu, NVL-AX, bundle, integration."
+description: "NVL-AX ZeBu ZSE5 emulation agent. Compiles models, runs DOA tests, debugs failures, applies fixes, and re-runs. Use for compile, build, grdlbuild, DOA test, simregress, debug."
 tools: ["*"]
 ---
 
