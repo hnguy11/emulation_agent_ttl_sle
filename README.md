@@ -126,6 +126,59 @@ flowchart TD
 
 ---
 
+## 🎯 Bug Match Confidence Score
+
+When a failure occurs, the agent searches **57 known bugs** and scores each match. The top-3 ranked results are presented so you can decide.
+
+### How Scoring Works
+
+```mermaid
+graph LR
+    F["🔍 Failure\nDetected"] --> T["Tag Match\n+50 pts"]
+    F --> C["Category Match\n+30 pts"]
+    F --> S["Critical Symptom\n+10 pts"]
+    F --> P["Phase Match\n+5 pts"]
+    F --> PM["Phase Mismatch\n×0.5 penalty"]
+
+    T --> SCORE["📊 Total\nScore"]
+    C --> SCORE
+    S --> SCORE
+    P --> SCORE
+    PM --> SCORE
+
+    style T fill:#0d3b66,stroke:#4a9eff,stroke-width:2px,color:#fff
+    style C fill:#1b4332,stroke:#6abf69,stroke-width:2px,color:#fff
+    style S fill:#5c3d0e,stroke:#f0ad4e,stroke-width:2px,color:#fff
+    style P fill:#2a4a5a,stroke:#88ccee,stroke-width:2px,color:#fff
+    style PM fill:#6b1d1d,stroke:#ff6b6b,stroke-width:2px,color:#fff
+    style SCORE fill:#333,stroke:#aaa,stroke-width:3px,color:#fff
+    style F fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
+```
+
+### Confidence Levels
+
+| Score | Level | What it means |
+|-------|-------|---------------|
+| ≥ 200 | 🟢 **VERY HIGH** | Almost certainly this bug — apply fix directly |
+| 50 – 99 | 🟡 **HIGH** | Strong match — apply fix, but verify |
+| 15 – 29 | 🟠 **MEDIUM** | Possible match — review the BUG file before acting |
+| < 15 | 🔴 **LOW** | Weak match — likely a new or unknown issue |
+
+### Example
+
+> A test fails with a `dlopen` error during **EMU_SETUP** phase:
+>
+> | Signal | BUG-026 | Points |
+> |--------|---------|--------|
+> | Tag `dlopen` matches | ✅ | +50 |
+> | Category `library` matches | ✅ | +30 |
+> | Phase `EMU_SETUP` matches | ✅ | +5 |
+> | **Total** | | **85 → 🟡 HIGH** |
+>
+> → Agent applies BUG-026 fix and re-runs.
+
+---
+
 ## 📂 Knowledge Base
 
 ```
