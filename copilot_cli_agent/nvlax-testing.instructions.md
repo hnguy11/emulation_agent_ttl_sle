@@ -56,4 +56,16 @@ Post-processing (SVA/TLM_POST) can fail AFTER emulation passes. ALWAYS check the
 - **spacedoa_mobile**: All 4 Atom cores boot + SpaceDOA workload + `EBX=0xaced` (~4-5 hrs)
 - **spacex_mobile**: PCIe link training + GPU MMIO test + `EBX=0xaced` (~5 hrs)
 
+## MANDATORY — Resubmit Rules (User-Stated, Non-Negotiable)
+
+1. **Wait for the run to fully finish (PASS or FAIL), then resubmit if it failed.**
+   - The correct cycle is: submit → monitor → wait for result → resubmit only after confirmed FAIL.
+   - Do NOT resubmit while the test is still running, even if the logbook looks stale or the job appears stuck.
+   - After a confirmed PASS: done, no resubmit needed.
+   - After a confirmed FAIL: resubmit once and repeat the cycle.
+
+2. **Do NOT resubmit mid-run.**
+   - A stale `logbook.log` does NOT mean the job is dead — it is still cycling through NB board queues.
+   - Check `emurun.log` for queue cycling evidence before drawing any conclusion.
+
 ## If Test Fails → Go to debug instructions
