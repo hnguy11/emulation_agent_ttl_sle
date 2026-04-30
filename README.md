@@ -80,45 +80,36 @@ That's it. You're ready to go.
 ## 🔄 How It Works
 
 ```mermaid
-graph LR
-    subgraph S1["🔨 Step 1: COMPILE"]
-        A1["grdlbuild"]
-        A2["6 pass checks ✓"]
-        A1 --> A2
-    end
+flowchart TD
+    START([🚀 Start]) --> COMPILE
 
-    subgraph S2["🔧 Step 2: POST-BUILD"]
-        B1["post_zcui"]
-        B2["fix_zse5_libs.sh ✓"]
-        B1 --> B2
-    end
+    COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild\n14 build stages · ~50 hrs\n6 pass checks"]
+    COMPILE -->|"✅ pass"| POSTBUILD
 
-    subgraph S3["🧪 Step 3: DOA TEST"]
-        C1["simregress"]
-        C2["5 pass checks ✓"]
-        C1 --> C2
-    end
+    POSTBUILD["🔧 STEP 2 — POST-BUILD\n━━━━━━━━━━━━━━━━━━━━━\npost_zcui\nfix_zse5_libs.sh\nlibrary symlink repair"]
+    POSTBUILD --> TEST
 
-    subgraph S4["🐛 Step 4: DEBUG"]
-        D1["Detect phase"]
-        D2["Collect symptoms"]
-        D3["Match 57 bugs"]
-        D4["Apply fix"]
-        D1 --> D2 --> D3 --> D4
-    end
+    TEST["🧪 STEP 3 — DOA TEST\n━━━━━━━━━━━━━━━━━━━━━\nsimregress\nspacedoa / spacex · ~4-5 hrs\n5 pass checks"]
+    TEST -->|"✅ all stages PASS"| DONE
 
-    S1 -->|"pass"| S2
-    S2 --> S3
-    S3 -->|"pass ✅"| DONE["🎉 Done"]
-    S1 -->|"fail"| S4
-    S3 -->|"fail"| S4
-    D4 -.->|"🔁 fix applied — re-run"| A1
+    COMPILE -->|"❌ fail"| DEBUG
+    TEST -->|"❌ fail"| DEBUG
 
-    style S1 fill:#1e3a5f,stroke:#4a9eff,color:#fff
-    style S2 fill:#2d4a2d,stroke:#6abf69,color:#fff
-    style S3 fill:#4a3a1e,stroke:#f0ad4e,color:#fff
-    style S4 fill:#5a1e1e,stroke:#ff6b6b,color:#fff
-    style DONE fill:#2d6b2d,stroke:#5cb85c,color:#fff
+    DEBUG["🐛 STEP 4 — DEBUG\n━━━━━━━━━━━━━━━━━━━━━\n1. Detect failure phase\n2. Collect symptoms from logs\n3. Search 57 known bugs\n4. Score & match best fix"]
+    DEBUG -->|"🔁 fix applied — re-run"| COMPILE
+
+    DONE([🎉 Model Ready])
+
+    style COMPILE fill:#0d3b66,stroke:#4a9eff,stroke-width:3px,color:#fff
+    style POSTBUILD fill:#1b4332,stroke:#6abf69,stroke-width:3px,color:#fff
+    style TEST fill:#5c3d0e,stroke:#f0ad4e,stroke-width:3px,color:#fff
+    style DEBUG fill:#6b1d1d,stroke:#ff6b6b,stroke-width:3px,color:#fff
+    style DONE fill:#1b6b1b,stroke:#5cb85c,stroke-width:3px,color:#fff
+    style START fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
+
+    linkStyle 4 stroke:#ff4444,stroke-width:2px,stroke-dasharray:5
+    linkStyle 5 stroke:#ff4444,stroke-width:2px,stroke-dasharray:5
+    linkStyle 6 stroke:#ff4444,stroke-width:2px,stroke-dasharray:5
 ```
 
 ---
