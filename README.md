@@ -231,19 +231,6 @@ Inside Copilot CLI, run these commands:
 
 ---
 
-## 👥 Contributors
-
-| User | Role |
-|------|------|
-| tbaziza | Owner |
-| michaeleldin | Editor |
-| yarombar | Editor |
-| mtzola | Reader |
-| vmeskin | Reader |
-| ofersan5 | Reader |
-
----
-
 <div align="center">
 
 **Created by Tomer Baziza** · NVL-AX Silicon Validation · Intel
