@@ -183,25 +183,29 @@ prerequisite → spark_co → override_vcs_home → gen_dv_flist → c_compile �
 
 ### How to Verify Compilation Passed — ALL 6 Must Pass
 
+> **Note:** Replace `<EMU_MODEL>` below with your model name (e.g. `pkg_ghpf_model`, `pkg_chp_model_p2e4`). The output path pattern is: `output/nvlsi7_n2p/emu/zebu_zebu/<EMU_MODEL>/zse5/`
+
 ```bash
+ZSE5_OUT="output/nvlsi7_n2p/emu/zebu_zebu/<EMU_MODEL>/zse5"
+
 # 1. Shadow files = 19
 [ $(ls .shadow/ | wc -l) -eq 19 ] && echo "CHECK-1: PASS" || echo "CHECK-1: FAIL"
 
 # 2. U0-U3 backend directories exist
-ls output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/zcui.work/backend_default/ | grep -c "^U[0-9]"
+ls $ZSE5_OUT/zcui.work/backend_default/ | grep -c "^U[0-9]"
 
 # 3. MuDb info non-empty
-[ -s output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/zcui.work/backend_default/MuDb/equis/info ] && echo "CHECK-3: PASS" || echo "CHECK-3: FAIL"
+[ -s $ZSE5_OUT/zcui.work/backend_default/MuDb/equis/info ] && echo "CHECK-3: PASS" || echo "CHECK-3: FAIL"
 
 # 4. No missing shared libraries
-ldd output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/simics_workspace/linux64/lib/zse_engine.so 2>/dev/null | grep -c "not found"
+ldd $ZSE5_OUT/simics_workspace/linux64/lib/zse_engine.so 2>/dev/null | grep -c "not found"
 
 # 5. readmem.dump is a regular file
-[ -f output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/readmem.dump ] && echo "CHECK-5: PASS" || echo "CHECK-5: FAIL"
+[ -f $ZSE5_OUT/readmem.dump ] && echo "CHECK-5: PASS" || echo "CHECK-5: FAIL"
 
 # 6. No failure_info.log in latest log dir
-LATEST=$(ls -t output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/log/ | head -1)
-[ ! -f "output/nvlsi7_n2p/emu/zebu_zebu/pkg_ghpf_model/zse5/log/$LATEST/failure_info.log" ] && echo "CHECK-6: PASS" || echo "CHECK-6: FAIL"
+LATEST=$(ls -t $ZSE5_OUT/log/ | head -1)
+[ ! -f "$ZSE5_OUT/log/$LATEST/failure_info.log" ] && echo "CHECK-6: PASS" || echo "CHECK-6: FAIL"
 ```
 
 **Quick check:**
@@ -275,6 +279,12 @@ grep -q "PASSED" results.log && echo "CHECK-1: PASS" || echo "CHECK-1: FAIL"
 
 # 2. ALL logbook stages must be PASS (most important check)
 zgrep -A 10 "Stage.*Elapsed.*Status" logbook.log.gz | tail -6
+# Expected output for a PASSING test:
+#  Stage                   Elapsed  Errors Warnings Status
+# Test build              00:30:22   0       0     PASS
+# Model run               48:42:13   0       1     PASS
+# Creating RPT            00:26:55   0       0     PASS
+# Post processing         00:00:04   0       0     PASS
 
 # 3. emurun result
 grep -i "PASSED\|FAILED" emurun.log | tail -3
