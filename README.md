@@ -4,7 +4,7 @@
 
 **An AI-powered agent that compiles, tests, debugs, and fixes NVL-AX ZeBu ZSE5 emulation models — end to end.**
 
-[![Agent](https://img.shields.io/badge/Copilot_CLI-Agent-blue?style=for-the-badge&logo=github)](https://github.com/tbaziza/NVL_AX_agent_workspace)
+[![Agent](https://img.shields.io/badge/Copilot_CLI-Agent-blue?style=for-the-badge&logo=github)](https://github.com/tbaziza/emulation_agent)
 [![Bugs](https://img.shields.io/badge/Known_Bugs-57-orange?style=for-the-badge)](05_knowledge_and_debugging/known_bugs_and_fixes/)
 [![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)]()
 
@@ -19,13 +19,13 @@
 ### Step 1: Clone the Knowledge Base
 
 ```bash
-git clone https://github.com/tbaziza/NVL_AX_agent_workspace.git
+git clone https://github.com/tbaziza/emulation_agent.git
 ```
 
 ### Step 2: Run the init script
 
 ```bash
-bash NVL_AX_agent_workspace/copilot_cli_agent/init_agent.sh
+bash emulation_agent/copilot_cli_agent/init_agent.sh
 ```
 
 The script will:
@@ -42,7 +42,7 @@ Once the script prints **✅ Setup Complete!**, the agent is ready. Launch Copil
 /agent sle_emulation_agent
 ```
 
-> 💡 **To update later**, `git pull` inside `NVL_AX_agent_workspace/` and re-run `init_agent.sh` with the same working disk path.
+> 💡 **To update later**, `git pull` inside `emulation_agent/` and re-run `init_agent.sh` with the same working disk path.
 
 ---
 
@@ -238,7 +238,7 @@ graph LR
 ## 📂 Knowledge Base
 
 ```
-📁 NVL_AX_agent_workspace/
+📁 emulation_agent/
 ├── 📄 00_index.md                          ← Start here
 ├── 📁 01_agent_core/                       ← Identity, safety rules, AI guidelines
 ├── 📁 02_execution/                        ← Build commands, environment setup

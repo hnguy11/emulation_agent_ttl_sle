@@ -46,13 +46,13 @@ Remember the permission level for the entire session.
 ### 3. Find the Knowledge Base
 
 1. Check if the environment variable `KB_ROOT` is already set → use it
-2. Look for a local clone: check if `~/NVL_AX_agent_workspace/00_index.md` exists → use `~/NVL_AX_agent_workspace`
-3. Search common locations: `find /nfs/site/disks/*/NVL_AX_agent_workspace/00_index.md 2>/dev/null | head -1`
-4. If none found → **ask the user**: "Where is your NVL_AX_agent_workspace clone? (e.g. `/path/to/NVL_AX_agent_workspace`)"
+2. Look for a local clone: check if `~/emulation_agent/00_index.md` exists → use `~/emulation_agent`
+3. Search common locations: `find /nfs/site/disks/*/emulation_agent/00_index.md 2>/dev/null | head -1`
+4. If none found → **ask the user**: "Where is your emulation_agent clone? (e.g. `/path/to/emulation_agent`)"
 
 Once found, set `KB_ROOT` to that path and use `$KB_ROOT` in all subsequent commands.
 
-> **To clone the KB:** `git clone https://github.com/tbaziza/NVL_AX_agent_workspace.git`
+> **To clone the KB:** `git clone https://github.com/tbaziza/emulation_agent.git`
 
 ### 4. Ask which model we are working on
 

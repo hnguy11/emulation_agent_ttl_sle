@@ -6,7 +6,7 @@
 #   1. Asks for your working disk directory
 #   2. Moves ~/.copilot/agents to the working disk (avoids NFS home quota)
 #   3. Creates a symlink back to ~/.copilot/agents
-#   4. Locates the NVL_AX_agent_workspace KB and copies the agent file
+#   4. Locates the emulation_agent KB and copies the agent file
 #   5. Hardcodes KB_ROOT in the agent so it's ready to use
 #
 # Usage:  bash init_agent.sh
@@ -130,9 +130,9 @@ fi
 echo ""
 
 #───────────────────────────────────────────────────────────────────────────────
-# Step 5: Locate KB (NVL_AX_agent_workspace) and set KB_ROOT
+# Step 5: Locate KB (emulation_agent) and set KB_ROOT
 #───────────────────────────────────────────────────────────────────────────────
-echo -e "${BOLD}Step 5: Locate Knowledge Base (NVL_AX_agent_workspace)${RESET}"
+echo -e "${BOLD}Step 5: Locate Knowledge Base (emulation_agent)${RESET}"
 
 KB_ROOT=""
 
@@ -141,23 +141,23 @@ if [ -f "$REPO_DIR/00_index.md" ]; then
     KB_ROOT="$REPO_DIR"
     ok "Found KB at script's parent directory: $KB_ROOT"
 # Option 2: Check common location on working disk
-elif [ -f "$WORKING_DISK/NVL_AX_agent_workspace/00_index.md" ]; then
-    KB_ROOT="$WORKING_DISK/NVL_AX_agent_workspace"
+elif [ -f "$WORKING_DISK/emulation_agent/00_index.md" ]; then
+    KB_ROOT="$WORKING_DISK/emulation_agent"
     ok "Found KB on working disk: $KB_ROOT"
 # Option 3: Home directory
-elif [ -f "$HOME/NVL_AX_agent_workspace/00_index.md" ]; then
-    KB_ROOT="$HOME/NVL_AX_agent_workspace"
+elif [ -f "$HOME/emulation_agent/00_index.md" ]; then
+    KB_ROOT="$HOME/emulation_agent"
     ok "Found KB in home directory: $KB_ROOT"
 # Option 4: Search NFS disks
 else
-    info "Searching NFS disks for NVL_AX_agent_workspace..."
-    FOUND=$(find /nfs/site/disks/*/NVL_AX_agent_workspace/00_index.md 2>/dev/null | head -1)
+    info "Searching NFS disks for emulation_agent..."
+    FOUND=$(find /nfs/site/disks/*/emulation_agent/00_index.md 2>/dev/null | head -1)
     if [ -n "$FOUND" ]; then
         KB_ROOT="$(dirname "$FOUND")"
         ok "Found KB at: $KB_ROOT"
     else
-        err "Could not find NVL_AX_agent_workspace automatically."
-        echo "  Clone it with: git clone https://github.com/tbaziza/NVL_AX_agent_workspace.git"
+        err "Could not find emulation_agent automatically."
+        echo "  Clone it with: git clone https://github.com/tbaziza/emulation_agent.git"
         read -rp "  Or enter the path manually: " KB_ROOT
         [ ! -f "$KB_ROOT/00_index.md" ] && die "Invalid KB path — 00_index.md not found in $KB_ROOT"
         ok "Using user-provided KB path: $KB_ROOT"
