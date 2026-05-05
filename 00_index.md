@@ -39,6 +39,7 @@ Zebu ZSE5 emulation models for the `nvlsi7_n2p` DUT. It is designed for:
 | Search known bugs | `05_knowledge_and_debugging/known_bugs_and_fixes/` (34 files) |
 | Recognize a failure pattern | `05_knowledge_and_debugging/common_patterns.md` |
 | Document a new bug | `05_knowledge_and_debugging/bug_template.md` + `documentation_rules.md` |
+| Detailed build procedure (grdlbuild monitor, iterative fix, driverClk, etc.) | `06_skills/` |
 
 ## Directory Structure
 
@@ -59,15 +60,27 @@ NVL_AX_agent_workspace/
 ├── 04_monitoring/                       # Real-time pipeline monitoring
 │   ├── metrics_definition.md            # What to monitor (CPU, mem, logs)
 │   └── alert_thresholds.md              # When to intervene
-└── 05_knowledge_and_debugging/          # Living knowledge base
-    ├── debug_workflow.md                # Log analysis, phase detection &amp; triage
-    ├── common_patterns.md               # 21 recurring failure categories
-    ├── documentation_rules.md           # Standards + methodology creation protocol
-    ├── symptom_rules.txt               # Conditional symptom extraction config
-    ├── run_phase_detection_nvlax.sh    # Automated phase detection script
-    └── known_bugs_and_fixes/            # 34 individual bug reports
-        ├── bug_template.md              # Template with scoring headers
-        └── BUG-001..034_*.md            # One file per bug
+├── 05_knowledge_and_debugging/          # Living knowledge base
+│   ├── debug_workflow.md                # Log analysis, phase detection &amp; triage
+│   ├── common_patterns.md               # 21 recurring failure categories
+│   ├── documentation_rules.md           # Standards + methodology creation protocol
+│   ├── symptom_rules.txt               # Conditional symptom extraction config
+│   ├── run_phase_detection_nvlax.sh    # Automated phase detection script
+│   └── known_bugs_and_fixes/            # 34 individual bug reports
+│       ├── bug_template.md              # Template with scoring headers
+│       └── BUG-001..034_*.md            # One file per bug
+└── 06_skills/                           # Detailed build procedure skills (migrated from ~/.copilot/skills/)
+    ├── sle-build-grdlbuild-monitor.md           # Monitor grdlbuild progress, parse error logs
+    ├── sle-build-iterative-build-monitor-fix.md # End-to-end build-fix cycle automation
+    ├── sle-build-zebu-driverclock-debug.md      # Debug slow driverClk, zTime.log, DPO/SCC
+    ├── sle-build-dfx-target-enablement.md       # Enable DFX build target for PKG CHPr
+    ├── sle-build-fpga-elab-missing-cell-fix.md  # Fix CFCILFBI elab errors in FPGA builds
+    ├── sle-build-fpga-rtlchanges-postcheck-fix.md # Fix rtlchanges_postcheck for FPGA builds
+    ├── sle-build-new-target-analysis-opts.md    # Fix missing global analysis opts for new targets
+    ├── sle-build-pcd-bkc-integration.md         # Integrate new PCD BKC release
+    ├── sle-build-pcd-pkgpinlist-rtlchange-generation.md  # Regenerate ttlpcdhpkg wrapper rtlchange
+    ├── sle-build-rtlchanges-create.md           # Create new rtlchange from scratch
+    └── sle-build-rtlchanges-refresh.md          # Fix stale .ref files, HSDs.toml entries
 ```
 
 ## AI Agent Instructions — MANDATORY
