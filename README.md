@@ -73,10 +73,13 @@ You: compile the model
 
 | Model | Type | Platform | Build Command |
 |-------|------|----------|--------------|
+| **Converged TTLbx** | ZSE5 + FPGA | ttlbx | `grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb` |
 | `pkg_chpr_p2e4_816_fast` | ZSE5 | ttlbx | `grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb` |
 | `pkg_chpr_cfgr_p2e0_816_fast` | ZSE5 | ttlbx | `grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse -nb` |
 | `pkg_chpr_cfgr_p2e0_816_fast` | FPGA slimsim | ttlbx | `grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb` |
 | `pkg_chpr_p2e4_816_fast` | ZSE5 | ttlhm | `grdlbuild ttlhm_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb` |
+
+> **Converged TTLbx** launches all 3 TTLbx targets in a single `grdlbuild` call, sharing common dependency stages. TTLhm has only one target — no converged option.
 
 ---
 
