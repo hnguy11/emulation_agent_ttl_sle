@@ -43,13 +43,36 @@ vscode_askQuestions with questions:
 ## Workflow Steps
 
 ### Step 1: Launch Build
+
+> ⚠️ **CRITICAL — Always validate WORKAREA before launching**
+>
+> The `$WORKAREA` env var may have been set by a previous `cth_psetup` run in a **different directory**.
+> A stale or wrong WORKAREA silently corrupts the build: grdlbuild submits NB jobs using the wrong
+> path for resources.ini (`GRDLBUILD_COMPUTE_SETTINGS`), causing tasks to land in the wrong NB qslot.
+>
+> **Before every `grdlbuild` invocation, always explicitly set WORKAREA to the exact intended path**
+> and verify it matches `$PWD`:
+>
+> ```bash
+> # Validate: WORKAREA must exactly match your target workarea (including any .1, .2 suffix, etc.)
+> echo "WORKAREA : $WORKAREA"
+> echo "PWD      : $(pwd)"
+> # If they differ, fix WORKAREA before proceeding
+> ```
+>
+> **Never assume `$WORKAREA` is correct from a prior shell session.** Always set it explicitly.
+
 ```tcsh
-setenv WORKAREA /path/to/workspace
-grdlbuild <TARGET> -id
+cd /path/to/workspace          # e.g. .../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+setenv WORKAREA $PWD           # set WORKAREA to the exact path including any suffix (.1, .2, etc.)
+grdlbuild <TARGET> -nb
 ```
-- `setenv WORKAREA` **MUST** be set before calling `grdlbuild` — the wrapper resolves `--project-dir` from WORKAREA
+- `setenv WORKAREA` **MUST** be set before calling `grdlbuild` — the CTH wrapper uses it to set
+  `GRDLBUILD_COMPUTE_SETTINGS=$WORKAREA/flows/grdlbuild/resources.ini`, which controls the NB
+  pool/qslot for all grdlbuild task submissions. A wrong WORKAREA causes tasks to land in the
+  wrong NB qslot (e.g., `/PCH/Client_System_Solution` instead of `/PCH/CSS/TTL/emu`).
 - Do **NOT** pass `--project-dir` or `-- make_args=...` — grdlbuild handles these internally via its recipe
-- Use `-id` to skip already-completed tasks (incremental builds)
+- Use `-nb` for NB-submitted builds (ZSE5/FPGA); use `-id` to skip already-completed tasks
 - Launch in a **background terminal** since builds run for hours
 - Record the terminal ID and start timestamp for monitoring
 

@@ -60,6 +60,23 @@ export SNPSLMD_LICENSE_FILE="26586@synopsys07p.elic.intel.com:..."
 export WORKAREA=/nfs/site/disks/ive_sle_zsc11_tbaziza/models/integrate_bundle1106
 ```
 
+> ⚠️ **CRITICAL — WORKAREA must be set explicitly and verified before every grdlbuild invocation**
+>
+> The `$WORKAREA` env var may have been set by a prior `cth_psetup` in a **different directory**
+> (e.g., a parent path missing a `.1` or `.2` suffix). A wrong WORKAREA silently breaks NB job
+> routing: the CTH grdlbuild wrapper sets `GRDLBUILD_COMPUTE_SETTINGS=$WORKAREA/flows/grdlbuild/resources.ini`,
+> so if WORKAREA is wrong, tasks land in the wrong NB qslot (e.g., `/PCH/Client_System_Solution`
+> instead of `/PCH/CSS/TTL/emu`).
+>
+> **Before every `grdlbuild` run:**
+> ```bash
+> cd /exact/path/to/workarea   # including any .1 / .2 suffix
+> export WORKAREA=$(pwd)        # always set from $PWD after cd
+> echo "WORKAREA: $WORKAREA"   # confirm it is correct
+> ```
+>
+> **Never rely on an inherited `$WORKAREA` from a prior session — always set it explicitly.**
+
 ## NB/FM Configuration
 
 | Setting | Value |

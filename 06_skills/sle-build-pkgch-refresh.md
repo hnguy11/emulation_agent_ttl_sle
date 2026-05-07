@@ -226,7 +226,10 @@ git commit -m "Merge pkg_ch refresh: c17f_h17e_p13a"
 
 After the merge commit is complete, run the IP sync script from inside the new workarea. This pulls over any IP packages referenced by the new model that are not yet present locally.
 
+> ⚠️ **CRITICAL**: `$WORKAREA` **must** be explicitly set to the new workarea path before running the script. The script uses `$WORKAREA` to locate `filelists/.soc.list.mako`. If `$WORKAREA` is unset or points to the old workarea, the script will silently read the old IP paths, report them as "IP exists", and return without syncing the new IPs.
+
 ```bash
+export WORKAREA=$TARGET
 cd $TARGET
 python scripts/sync_ips_zsc16.py
 ```
@@ -247,4 +250,4 @@ Wait for the script to complete before proceeding to build.
 | 4 | `git clone <base_SLE> <new_workarea>` | |
 | 5 | `git pull <user>@zsc10-login:<pkg_ch_path>` from inside new workarea | |
 | 6 | Resolve merge conflicts (preserve SLE markers; confirm unmarked files with user) | |
-| 7 | `python scripts/sync_ips_zsc16.py` — sync missing IPs into new workarea | |
+| 7 | `export WORKAREA=$TARGET && python scripts/sync_ips_zsc16.py` — sync missing IPs (WORKAREA must point to new workarea) | |

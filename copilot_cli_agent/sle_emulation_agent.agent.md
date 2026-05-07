@@ -26,6 +26,7 @@ KB_ROOT = `/nfs/site/disks/issp_ttl_emu_compile_001/copilot_agents/emulation_age
 | Integrating a new PCD BKC release (rsync from FM, SLE delta merge) | `$KB_ROOT/06_skills/sle-build-pcd-bkc-integration.md` |
 | PCD port list changed, need to regenerate ttlpcdhpkg wrapper rtlchange | `$KB_ROOT/06_skills/sle-build-pcd-pkgpinlist-rtlchange-generation.md` |
 | driverClk is slow, analyzing zTime.log, FASTCLOCK DPO issues, SCC loops | `$KB_ROOT/06_skills/sle-build-zebu-driverclock-debug.md` |
+| Preparing a new SLE workarea for a pkg_ch IP refresh (clone base SLE, pull from new pkg_ch model on zsc10) | `$KB_ROOT/06_skills/sle-build-pkgch-refresh.md` |
 
 ## Your Workflow
 
