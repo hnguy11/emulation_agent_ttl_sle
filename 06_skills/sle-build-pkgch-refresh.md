@@ -222,6 +222,21 @@ git commit -m "Merge pkg_ch refresh: c17f_h17e_p13a"
 
 ---
 
+## Step 7: Sync Missing IPs
+
+After the merge commit is complete, run the IP sync script from inside the new workarea. This pulls over any IP packages referenced by the new model that are not yet present locally.
+
+```bash
+cd $TARGET
+python scripts/sync_ips_zsc16.py
+```
+
+> This script fetches any missing IPs needed by the refreshed model. It must be run **after** the merge commit so the updated `filelists/.soc.list.mako` (with new cdie/hub pointers) is in place.
+
+Wait for the script to complete before proceeding to build.
+
+---
+
 ## Summary Checklist
 
 | Step | Action | Done? |
@@ -232,3 +247,4 @@ git commit -m "Merge pkg_ch refresh: c17f_h17e_p13a"
 | 4 | `git clone <base_SLE> <new_workarea>` | |
 | 5 | `git pull <user>@zsc10-login:<pkg_ch_path>` from inside new workarea | |
 | 6 | Resolve merge conflicts (preserve SLE markers; confirm unmarked files with user) | |
+| 7 | `python scripts/sync_ips_zsc16.py` — sync missing IPs into new workarea | |
