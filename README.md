@@ -136,7 +136,8 @@ flowchart TD
 1. Switch to autopilot mode (`/model` → autopilot)
 2. Permission level: Full auto / Build only / Read-only
 3. Monitoring preference: **Manual** *(default — periodic log checks in chat)* or Background script *(known reliability issues)*
-4. Which model to build
+4. WORKAREA path (always asked — never assumed)
+5. Which model to build
 
 **Step 1: Compile** — Launches `grdlbuild` and monitors progress through 14 stages (~50 hrs for ZSE5). Reads both monitoring KB files before starting.
 
@@ -147,6 +148,60 @@ flowchart TD
 **Verify** — Runs 6 pass checks after build completes. All must pass.
 
 **Debug** — If anything fails, detects the phase (BUILD / ANALYZE/ELAB / SYNTHESIS), collects symptoms, searches 57 known bug files, and applies the best-matched fix before re-running.
+
+---
+
+## 🔄 pkg_ch IP Refresh Workflow
+
+Use this when a new `pkg_ch` model release is available on zsc10 and you need to create a new SLE workarea based on it.
+
+```mermaid
+flowchart TD
+    START([🚀 pkg_ch Refresh]) --> INPUTS
+
+    INPUTS["📥 GATHER INPUTS\n━━━━━━━━━━━━━━━━━━━━━\nBase SLE model path\nNew pkg_ch path on zsc10\nWorking disk"]
+    INPUTS --> EXTRACT
+
+    EXTRACT["🔍 EXTRACT VERSIONS\n━━━━━━━━━━━━━━━━━━━━━\nSSH to zsc10-login\nRead filelists/.soc.list.mako\nExtract cdie / hub / PCD tags"]
+    EXTRACT --> NAME
+
+    NAME["🏷️ NAME NEW WORKAREA\n━━━━━━━━━━━━━━━━━━━━━\npkg-ttlpkg-a0-ttlbxpkg-cXXX_hXXX_pXXX\nCheck for collision → append suffix"]
+    NAME --> CLONE
+
+    CLONE["📋 GIT CLONE\n━━━━━━━━━━━━━━━━━━━━━\ngit clone &lt;base_SLE&gt; &lt;new_workarea&gt;"]
+    CLONE --> PULL
+
+    PULL["⬇️ GIT PULL\n━━━━━━━━━━━━━━━━━━━━━\ngit pull user@zsc10-login:&lt;pkg_ch_path&gt;"]
+    PULL -->|"no conflicts"| DONE
+    PULL -->|"merge conflicts"| RESOLVE
+
+    RESOLVE["🔀 RESOLVE CONFLICTS\n━━━━━━━━━━━━━━━━━━━━━\nKeep pkg_ch as base\nRe-apply SLE-marked blocks\nConfirm unmarked files with user"]
+    RESOLVE --> DONE
+
+    DONE([✅ Workarea Ready for Build])
+
+    style INPUTS fill:#2a2a5a,stroke:#7777cc,stroke-width:3px,color:#fff
+    style EXTRACT fill:#0d3b66,stroke:#4a9eff,stroke-width:3px,color:#fff
+    style NAME fill:#1b4332,stroke:#6abf69,stroke-width:3px,color:#fff
+    style CLONE fill:#1b4332,stroke:#6abf69,stroke-width:3px,color:#fff
+    style PULL fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
+    style RESOLVE fill:#6b1d1d,stroke:#ff6b6b,stroke-width:3px,color:#fff
+    style DONE fill:#1b6b1b,stroke:#5cb85c,stroke-width:3px,color:#fff
+    style START fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
+```
+
+### Refresh Workflow Details
+
+**Inputs required**:
+- Base SLE model path (known-good, local disk) — e.g., `/nfs/site/disks/issp_ttl_emu_compile_001/pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1`
+- New pkg_ch model path on zsc10 — e.g., `/p/cth/rtl/models/ddgcth/ttl/pkg_emu/pkg-ttlpkg-a0-ttlbxpkg-cdie_ww17f_hub_ww17e`
+- Working disk for the new clone
+
+**Version extraction** — The agent SSHes to `zsc10-login.zsc10.intel.com` and reads `filelists/.soc.list.mako` in the new pkg_ch model. It extracts version tags from the `26wwXXX` workweek strings in the cdie, hub, and `pcd_cfgr` path entries (e.g., `26ww17f` → `c17f`, `26ww17e` → `h17e`, `26ww13a` → `p13a`).
+
+**Naming** — New workarea is named `<prefix>-c<cdie>_h<hub>_p<pcd>`. If that directory already exists on the working disk, a `.2`, `.3` suffix is appended.
+
+**Merge conflict resolution** — SLE-specific content is identified by `// SLE Change`, `// SLE Addition`, `## SLE Change`, or `## SLE Addition` markers. Resolution rule: use pkg_ch as the base, re-apply all SLE-marked blocks. For comment-free file types (JSON, `.mako`, CSV), the agent diffs both sides and asks the user before discarding any SLE content.
 
 ---
 
@@ -176,6 +231,12 @@ flowchart TD
 | `refresh rtlchanges` | Fix stale .ref files or missing HSDs.toml entries |
 | `integrate new PCD BKC` | rsync from FM + apply SLE delta |
 | `regenerate ttlpcdhpkg rtlchange` | PCD port list changed → rebuild wrapper rtlchange |
+
+### 🔄 pkg_ch IP Refresh
+| Prompt | What it does |
+|--------|-------------|
+| `prepare a new workarea for pkg_ch refresh` | Full flow: clone base SLE, pull new pkg_ch, resolve conflicts |
+| `what cdie/hub/pcd version is in this pkg_ch model?` | Read `.soc.list.mako` on zsc10 and extract version tags |
 
 ### 📋 Status & Info
 | Prompt | What it does |
@@ -237,6 +298,7 @@ When a failure occurs, the agent searches **57 known bugs** and scores each matc
 │   ├── sle-build-grdlbuild-monitor.md      ← Build monitoring procedure
 │   ├── sle-build-iterative-build-monitor-fix.md ← End-to-end build-fix cycle
 │   ├── sle-build-zebu-driverclock-debug.md ← driverClk analysis + fixes
+│   ├── sle-build-pkgch-refresh.md          ← pkg_ch IP refresh: clone + pull + conflict resolution
 │   ├── sle-build-rtlchanges-create.md      ← Create new rtlchange
 │   ├── sle-build-rtlchanges-refresh.md     ← Refresh stale rtlchanges
 │   ├── sle-build-pcd-bkc-integration.md    ← PCD BKC release integration
