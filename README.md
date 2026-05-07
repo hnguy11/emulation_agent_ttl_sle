@@ -162,7 +162,7 @@ flowchart TD
     INPUTS["📥 GATHER INPUTS\n━━━━━━━━━━━━━━━━━━━━━\nBase SLE model path\nNew pkg_ch path on zsc10\nWorking disk"]
     INPUTS --> EXTRACT
 
-    EXTRACT["🔍 EXTRACT VERSIONS\n━━━━━━━━━━━━━━━━━━━━━\nSSH to zsc10-login\nRead filelists/.soc.list.mako\nExtract cdie / hub / PCD tags"]
+    EXTRACT["🔍 EXTRACT VERSIONS\n━━━━━━━━━━━━━━━━━━━━━\ncdie + hub: SSH zsc10-login\n  .soc.list.mako in new pkg_ch\nPCD: read base SLE model (local)"]
     EXTRACT --> NAME
 
     NAME["🏷️ NAME NEW WORKAREA\n━━━━━━━━━━━━━━━━━━━━━\npkg-ttlpkg-a0-ttlbxpkg-cXXX_hXXX_pXXX\nCheck for collision → append suffix"]
@@ -172,11 +172,14 @@ flowchart TD
     CLONE --> PULL
 
     PULL["⬇️ GIT PULL\n━━━━━━━━━━━━━━━━━━━━━\ngit pull user@zsc10-login:&lt;pkg_ch_path&gt;"]
-    PULL -->|"no conflicts"| DONE
+    PULL -->|"no conflicts"| SYNCIPS
     PULL -->|"merge conflicts"| RESOLVE
 
     RESOLVE["🔀 RESOLVE CONFLICTS\n━━━━━━━━━━━━━━━━━━━━━\nKeep pkg_ch as base\nRe-apply SLE-marked blocks\nConfirm unmarked files with user"]
-    RESOLVE --> DONE
+    RESOLVE --> SYNCIPS
+
+    SYNCIPS["🔁 SYNC IPs\n━━━━━━━━━━━━━━━━━━━━━\npython scripts/sync_ips_zsc16.py\nFetches missing IP packages"]
+    SYNCIPS --> DONE
 
     DONE([✅ Workarea Ready for Build])
 
@@ -186,6 +189,7 @@ flowchart TD
     style CLONE fill:#1b4332,stroke:#6abf69,stroke-width:3px,color:#fff
     style PULL fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
     style RESOLVE fill:#6b1d1d,stroke:#ff6b6b,stroke-width:3px,color:#fff
+    style SYNCIPS fill:#0d3b66,stroke:#4a9eff,stroke-width:3px,color:#fff
     style DONE fill:#1b6b1b,stroke:#5cb85c,stroke-width:3px,color:#fff
     style START fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
 ```
@@ -197,11 +201,13 @@ flowchart TD
 - New pkg_ch model path on zsc10 — e.g., `/p/cth/rtl/models/ddgcth/ttl/pkg_emu/pkg-ttlpkg-a0-ttlbxpkg-cdie_ww17f_hub_ww17e`
 - Working disk for the new clone
 
-**Version extraction** — The agent SSHes to `zsc10-login.zsc10.intel.com` and reads `filelists/.soc.list.mako` in the new pkg_ch model. It extracts version tags from the `26wwXXX` workweek strings in the cdie, hub, and `pcd_cfgr` path entries (e.g., `26ww17f` → `c17f`, `26ww17e` → `h17e`, `26ww13a` → `p13a`).
+**Version extraction** — cdie and hub versions come from `filelists/.soc.list.mako` in the **new pkg_ch model** (accessed via SSH to zsc10-login). PCD version comes from `filelists/.soc.list.mako` in the **base SLE model** (read locally — it is not present in the new pkg_ch model). Tags are extracted from `26wwXXX` workweek strings (e.g., `26ww17f` → `c17f`, `26ww17e` → `h17e`, `26ww13a` → `p13a`).
 
 **Naming** — New workarea is named `<prefix>-c<cdie>_h<hub>_p<pcd>`. If that directory already exists on the working disk, a `.2`, `.3` suffix is appended.
 
 **Merge conflict resolution** — SLE-specific content is identified by `// SLE Change`, `// SLE Addition`, `## SLE Change`, or `## SLE Addition` markers. Resolution rule: use pkg_ch as the base, re-apply all SLE-marked blocks. For comment-free file types (JSON, `.mako`, CSV), the agent diffs both sides and asks the user before discarding any SLE content.
+
+**IP sync** — After the merge commit, runs `python scripts/sync_ips_zsc16.py` to fetch any missing IP packages referenced by the refreshed model.
 
 ---
 
@@ -235,7 +241,7 @@ flowchart TD
 ### 🔄 pkg_ch IP Refresh
 | Prompt | What it does |
 |--------|-------------|
-| `prepare a new workarea for pkg_ch refresh` | Full flow: clone base SLE, pull new pkg_ch, resolve conflicts |
+| `prepare a new workarea for pkg_ch refresh` | Full flow: clone base SLE, pull new pkg_ch, resolve conflicts, sync IPs |
 | `what cdie/hub/pcd version is in this pkg_ch model?` | Read `.soc.list.mako` on zsc10 and extract version tags |
 
 ### 📋 Status & Info
@@ -298,7 +304,7 @@ When a failure occurs, the agent searches **57 known bugs** and scores each matc
 │   ├── sle-build-grdlbuild-monitor.md      ← Build monitoring procedure
 │   ├── sle-build-iterative-build-monitor-fix.md ← End-to-end build-fix cycle
 │   ├── sle-build-zebu-driverclock-debug.md ← driverClk analysis + fixes
-│   ├── sle-build-pkgch-refresh.md          ← pkg_ch IP refresh: clone + pull + conflict resolution
+│   ├── sle-build-pkgch-refresh.md          ← pkg_ch IP refresh: clone + pull + conflict resolution + IP sync
 │   ├── sle-build-rtlchanges-create.md      ← Create new rtlchange
 │   ├── sle-build-rtlchanges-refresh.md     ← Refresh stale rtlchanges
 │   ├── sle-build-pcd-bkc-integration.md    ← PCD BKC release integration
