@@ -1,6 +1,6 @@
 ---
 name: sle-build-pkgch-refresh
-description: "Prepare a new SLE workarea for a pkg_ch IP refresh. USE WHEN: a new pkg_ch model release is available on zsc10, need to create a new clone of the base SLE workarea, extract cdie/hub/PCD versions from the new pkg_ch model, name the clone appropriately, and pull the new pkg_ch content into it."
+description: "Prepare a new SLE workarea for a pkg_ch IP refresh. USE WHEN: a new pkg_ch model release is available on zsc10, need to create a new clone of the base SLE workarea, extract cdie/hub versions from the new pkg_ch model on zsc10 and PCD version from the base SLE model, name the clone appropriately, and pull the new pkg_ch content into it."
 argument-hint: "Provide: (1) path to base SLE model, (2) path to new pkg_ch model on zsc10, (3) working disk path for the new workarea."
 ---
 
@@ -31,29 +31,49 @@ Ask the user for all three inputs before proceeding:
 
 ---
 
-## Step 2: Extract Version Tags from pkg_ch Model
+## Step 2: Extract Version Tags
 
-Read `filelists/.soc.list.mako` from the new pkg_ch model on zsc10 to extract the cdie, hub, and PCD version tags.
+Version tags come from **two different sources**:
+
+| IP | Source | How to access |
+|----|--------|--------------|
+| cdie | `filelists/.soc.list.mako` in the **new pkg_ch model** (on zsc10) | SSH to zsc10-login |
+| hub  | `filelists/.soc.list.mako` in the **new pkg_ch model** (on zsc10) | SSH to zsc10-login |
+| pcd  | `filelists/.soc.list.mako` in the **base SLE model** (local) | Read locally |
+
+> ⚠️ **PCD version is NOT available in the new pkg_ch model.** Always read it from the base SLE model.
+
+### 2a: Extract cdie and hub versions from the new pkg_ch model (zsc10)
 
 ```bash
 # Access the file via zsc10-login
-ssh zsc10-login.zsc10.intel.com "grep -E 'cdie|hub|pcd_cfgr' <PKG_CH_MODEL>/filelists/.soc.list.mako"
+ssh zsc10-login.zsc10.intel.com "grep -E 'cdie|hub' <PKG_CH_MODEL>/filelists/.soc.list.mako"
 ```
 
 ### Example output:
 ```
 ${CDIE0_DUT}, /p/ipx/ipcache2/rzlcn2x/cdie/cdie-rzlcn2x-a0-26ww17f/3/rzlcn2x.cdie, ${CDIE0_DUT},
 ${HUB_DUT},  /p/ipx/ipcache2/ttlbxh78/hub/hub-ttlh78-a0-26ww17e/4/ttlbxh78.hub, ${HUB_DUT},
+```
+
+### 2b: Extract PCD version from the base SLE model (local)
+
+```bash
+grep 'pcd_cfgr' <BASE_SLE_MODEL>/filelists/.soc.list.mako
+```
+
+### Example output:
+```
 pcd_cfgr,    /nfs/site/disks/zsc16_ttlpcd_00008/release/emu_pcd-ttl-h-main-26ww13a-config-R_DFD_refresh, pchlp, pcd.flow.cfg;
 ```
 
 ### Version extraction rules:
 
-| IP | Find in path | Extract | Prefix | Result |
-|----|-------------|---------|--------|--------|
-| cdie | `26ww**17f**` in cdie path | `17f` | `c` | `c17f` |
-| hub  | `26ww**17e**` in hub path  | `17e` | `h` | `h17e` |
-| pcd  | `26ww**13a**` in pcd path  | `13a` | `p` | `p13a` |
+| IP | Source | Find in path | Extract | Prefix | Result |
+|----|--------|-------------|---------|--------|--------|
+| cdie | new pkg_ch (zsc10) | `26ww**17f**` in cdie path | `17f` | `c` | `c17f` |
+| hub  | new pkg_ch (zsc10) | `26ww**17e**` in hub path  | `17e` | `h` | `h17e` |
+| pcd  | base SLE (local)   | `26ww**13a**` in pcd path  | `13a` | `p` | `p13a` |
 
 The version token is the `ww`-suffixed portion of the `26wwXXX` workweek string (e.g., `26ww17f` → `17f`).
 
@@ -207,7 +227,7 @@ git commit -m "Merge pkg_ch refresh: c17f_h17e_p13a"
 | Step | Action | Done? |
 |------|--------|-------|
 | 1 | Gather: base SLE path, pkg_ch path, working disk | |
-| 2 | Read `.soc.list.mako` on zsc10 — extract cdie, hub, PCD versions | |
+| 2 | Read `.soc.list.mako` on zsc10 (cdie, hub) and in base SLE model (PCD) — extract version tags | |
 | 3 | Construct new workarea name (check for collisions) | |
 | 4 | `git clone <base_SLE> <new_workarea>` | |
 | 5 | `git pull <user>@zsc10-login:<pkg_ch_path>` from inside new workarea | |
