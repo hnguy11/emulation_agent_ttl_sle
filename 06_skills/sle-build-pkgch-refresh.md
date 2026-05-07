@@ -120,6 +120,88 @@ git pull hnguy11@zsc10-login.zsc10.intel.com:/p/cth/rtl/models/ddgcth/ttl/pkg_em
 
 ---
 
+## Step 6: Resolve Merge Conflicts
+
+The `git pull` will often produce merge conflicts where the new pkg_ch content overlaps with SLE-specific modifications in the base clone. Work through them as follows.
+
+### 6a: Check for conflicts
+
+```bash
+git status | grep "both modified\|both added\|unmerged"
+# Or list all conflicted files:
+git diff --name-only --diff-filter=U
+```
+
+### 6b: Identify SLE-specific content in each conflicted file
+
+SLE-specific changes are marked with one of these comment patterns:
+
+| Marker | Used in |
+|--------|---------|
+| `// SLE Change` | SV, C, Tcl, and other comment-supporting files |
+| `// SLE Addition` | Same |
+| `## SLE Change` | Makefile, Python, shell, YAML, and markdown files |
+| `## SLE Addition` | Same |
+
+> ⚠️ **Not all SLE changes will have markers** — some file formats do not support comments (e.g., JSON, CSV, `.mako` templates, binary-adjacent config files). For those, use git blame on the base SLE model or compare with the pkg_ch side to infer which content is SLE-specific.
+
+### 6c: Resolution strategy per conflict
+
+For each conflicted file:
+
+```
+<<<<<<< HEAD          ← this is the SLE side (base clone)
+... content ...
+=======
+... content ...
+>>>>>>> <pkg_ch_ref>  ← this is the new pkg_ch side
+```
+
+**Rule**: Keep the pkg_ch version as the base, then re-apply any SLE-marked content on top.
+
+| Conflict type | Resolution |
+|---------------|------------|
+| SLE marker present in HEAD block | Keep pkg_ch side; append/insert the `// SLE` or `## SLE` marked block back in |
+| No SLE marker in HEAD block, but lines differ | Prefer pkg_ch side (it's the upstream); alert user if content looks non-trivial |
+| New file added by both sides | Keep both; merge content with SLE additions clearly preserved |
+| SLE-added block not present in pkg_ch side at all | Restore the entire SLE block — pkg_ch simply doesn't have it |
+
+### 6d: Resolve and stage each file
+
+After manually resolving each file:
+```bash
+git add <resolved_file>
+```
+
+### 6e: Scan for unmarked SLE content (files without comment support)
+
+For file types that can't carry comments (e.g., `.json`, `.mako`, `.csv`, config files), check whether the SLE side has any content the pkg_ch side lacks:
+
+```bash
+# View all remaining conflict markers (should be zero when done)
+grep -rl "<<<<<<< HEAD" $TARGET/
+
+# For a specific file, diff SLE vs pkg_ch content manually:
+git show HEAD:<file>       # SLE version
+git show MERGE_HEAD:<file> # pkg_ch version
+```
+
+Present these to the user for confirmation before resolving — do not silently discard SLE-side content in comment-free files.
+
+### 6f: Complete the merge
+
+Once all conflicts are resolved and staged:
+```bash
+git commit -m "Merge pkg_ch refresh: c<cdie>_h<hub>_p<pcd>"
+```
+
+**Example**:
+```bash
+git commit -m "Merge pkg_ch refresh: c17f_h17e_p13a"
+```
+
+---
+
 ## Summary Checklist
 
 | Step | Action | Done? |
@@ -129,3 +211,4 @@ git pull hnguy11@zsc10-login.zsc10.intel.com:/p/cth/rtl/models/ddgcth/ttl/pkg_em
 | 3 | Construct new workarea name (check for collisions) | |
 | 4 | `git clone <base_SLE> <new_workarea>` | |
 | 5 | `git pull <user>@zsc10-login:<pkg_ch_path>` from inside new workarea | |
+| 6 | Resolve merge conflicts (preserve SLE markers; confirm unmarked files with user) | |
