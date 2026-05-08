@@ -349,6 +349,15 @@ LATEST=$(ls -t $ZSE5_OUT/log/ | head -1)
 
 If Compilation Fails → Go to Step 2 (Debug Build Failures)
 
+### Post-Build: PCD BKC Integration Check
+
+After all 6 pass checks succeed, ask the user:
+
+> **"Does this build require a PCD BKC integration (new PCD BKC release to pull in)?"**
+
+- If **yes** → read `$KB_ROOT/06_skills/sle-build-pcd-bkc-integration.md` immediately and step the user through the full integration flow
+- If **no** → the build is complete — report success to the user
+
 ---
 
 ## Step 2: Debug Build Failures
