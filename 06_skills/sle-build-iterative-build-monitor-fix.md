@@ -49,8 +49,9 @@ vscode_askQuestions with questions:
 > Two environment variables **must** be set explicitly before every `grdlbuild` invocation:
 >
 > **1. WORKAREA** — The `$WORKAREA` env var may have been set by a previous `cth_psetup` run in a **different directory**.
-> A stale or wrong WORKAREA silently corrupts the build: grdlbuild submits NB jobs using the wrong
-> path for resources.ini (`GRDLBUILD_COMPUTE_SETTINGS`), causing tasks to land in the wrong NB qslot.
+> A stale or wrong WORKAREA silently corrupts the build in two ways:
+>   - grdlbuild submits NB jobs using the wrong path for resources.ini (`GRDLBUILD_COMPUTE_SETTINGS`), causing tasks to land in the wrong NB qslot.
+>   - **MORE SERIOUS**: `gradle.properties` sets `outputDir=${WORKAREA}/output/grdlbuild`, so grdlbuild writes ALL output (logs, nbtasks, ZSE5 zcui.work) to the WRONG workarea's `output/` directory. This means the build compiles the wrong workarea's source files. The NB feeder name is derived from `pwd` (so `.1` appears in the feeder name and looks correct), but all actual build paths inside the nbtask point to `$WORKAREA`. This can go undetected for hours.
 >
 > **2. LM_PROJECT** — The VSCode/Copilot shell auto-constructs an invalid value (e.g., `SC_HNGUY11_UNKN`).
 > Intel's `getLf` license fetcher rejects it, causing **all DVB NB subtasks (jem, vcssimmpp, cpp) to fail
@@ -65,6 +66,14 @@ vscode_askQuestions with questions:
 > ```
 >
 > **Never assume these are correct from a prior shell session.** Always set them explicitly.
+>
+> **Verify the build is writing to the correct workarea** (run ~60 seconds after launch):
+> ```bash
+> # nbtask files must appear under $WORKAREA/output/grdlbuild/nbtasks/
+> ls $WORKAREA/output/grdlbuild/nbtasks/*.nbtask 2>/dev/null | head -3
+> # If empty, $WORKAREA was wrong — find where nbtask went:
+> find /nfs/site/disks/issp_ttl_emu_compile_001/ -maxdepth 4 -name "*.nbtask" -newer /tmp -user $USER 2>/dev/null
+> ```
 
 ```tcsh
 cd /path/to/workspace          # e.g. .../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
@@ -83,10 +92,11 @@ grdlbuild <TARGET> -nb
 - Record the terminal ID and start timestamp for monitoring
 
 **Concrete example (FPGA VCS):**
-```tcsh
-setenv WORKAREA /nfs/site/disks/issp_ttl_emu_compile_001/pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.fpga_vcs_enablement
-setenv LM_PROJECT DDG-TTLPKG
-grdlbuild :ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -id
+```bash
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.fpga_vcs_enablement
+export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
+grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb -id
 ```
 
 ### Step 2: Monitor Build Phases
@@ -385,13 +395,49 @@ cat /tmp/build_report.txt | /bin/mail -s "[Build Report] <subject>" <email> && e
 **Note**: In tcsh, heredocs (`<<`) don't work. Write email body to a temp file first, then pipe to `/bin/mail`.
 
 ### Step 6: Relaunch Build
-```tcsh
-setenv WORKAREA /path/to/workspace
-setenv LM_PROJECT DDG-TTLPKG
-grdlbuild <TARGET> -id
+
+> ⚠️ **CRITICAL — Set WORKAREA explicitly before every relaunch. Do NOT rely on the inherited env var.**
+> See the WORKAREA warning in Step 1. This applies equally to relaunches.
+
+```bash
+# BASH (preferred for TTL builds):
+export WORKAREA=/exact/path/to/workarea   # e.g. .../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
+grdlbuild <TARGET> -nb -id
 ```
-Launch in background terminal. The `-id` flag ensures completed phases aren't re-run.
-**IMPORTANT**: `setenv WORKAREA` and `setenv LM_PROJECT DDG-TTLPKG` must both be set before `grdlbuild`. Do NOT pass `--project-dir` or `-- make_args=...`.
+
+Or in tcsh:
+```tcsh
+setenv WORKAREA /exact/path/to/workarea
+setenv LM_PROJECT DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
+grdlbuild <TARGET> -nb -id
+```
+
+**TTL target syntax** (no leading colon, `-nb` required):
+```bash
+# ZSE5 p2e4 fast model (ttlbx) — relaunch after failure
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb -id
+
+# ZSE5 cfgr model (ttlbx) — relaunch after failure
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse -nb -id
+
+# FPGA slimsim model (ttlbx) — relaunch after failure
+grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb -id
+```
+
+**`-id` (ignore-deps) flag rules for TTL builds:**
+- **USE `-id`** whenever any upstream NB/DVB tasks have already completed (jem, vcssimmpp, cpp, analyze, fe_be, or any combination) — `-id` tells Gradle to skip those tasks and start from the first incomplete one
+- **USE `-id`** after applying a fix to a stage that failed, when all prior stages passed
+- **NEVER use `-id`** on the very first build — no completed tasks exist yet
+- **NEVER use `-id`** after changing RTL source files, `tool.cth`, `cfg/compute.cth`, or filelists that affect upstream stages — those upstream stages must re-run
+
+**`-nb` flag**: ALWAYS include `-nb` for TTL builds. It submits DVB sub-tasks (jem, vcssimmpp, cpp, ZSE5 elab) to the NB queue. Omitting it causes those tasks to run on the login node (not allowed).
+
+**IMPORTANT**: Do NOT pass `--project-dir` or `-- make_args=...` — grdlbuild handles these internally via its recipe.
+
+After relaunching, verify the build is writing to the correct workarea (nbtask files appear under `$WORKAREA/output/grdlbuild/nbtasks/`) — see Step 1 verification.
 
 ### Step 7: Repeat
 Continue monitoring from Step 2 until:
