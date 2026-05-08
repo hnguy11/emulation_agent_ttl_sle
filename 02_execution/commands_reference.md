@@ -71,6 +71,59 @@ touch -r output/ttlbx_n2p/cpp/lib/<lib>/analysis.log \
          output/ttlbx_n2p/cpp/lib/<lib>/.<lib>.done
 ```
 
+### New Workarea Setup — cfg/compute.cth (TTL ZSE5, REQUIRED before first -nb build)
+
+New workareas cloned from the TTLbx seed have an **empty** `cfg/compute.cth`. DVB requires COMPUTE sections for jem/vcssimmpp/cpp when `NB=1` is set (which PCD Makefile.cfg does unconditionally for ZSE5). Apply this fix before the first `-nb` build, then commit it:
+
+```bash
+cat > $WORKAREA/cfg/compute.cth << 'EOF'
+[COMPUTE]
+    Name = jem@zsc16
+    type = batch
+    qslot = /PCH/CSS/TTL/emu
+    target = zsc16_express
+    NBCMD = nbjob
+    RAM = 32
+    CPU = 4
+    OS = SLES15
+
+[COMPUTE]
+    Name = vcssimmpp@zsc16
+    type = batch
+    qslot = /PCH/CSS/TTL/emu
+    target = zsc16_express
+    NBCMD = nbjob
+    RAM = 32
+    CPU = 4
+    OS = SLES15
+
+[COMPUTE]
+    Name = cpp@zsc16
+    type = batch
+    qslot = /PCH/CSS/TTL/emu
+    target = zsc16_express
+    NBCMD = nbjob
+    RAM = 32
+    CPU = 4
+    OS = SLES15
+
+[COMPUTE]
+    Name = _DEFAULT@zsc16
+    type = batch
+    qslot = /PCH/CSS/TTL/emu
+    target = zsc16_express
+    NBCMD = nbjob
+    RAM = 32
+    CPU = 4
+    OS = SLES15
+EOF
+
+git -C $WORKAREA add cfg/compute.cth
+git -C $WORKAREA commit -m "cfg/compute.cth: add DVB NB COMPUTE sections for zsc16"
+```
+
+> ⚠️ **RAM must be a valid NB class** — valid 4-core values: `4G, 16G, 28G, 32G, 52G, 64G, 80G, 100G, 128G, 150G, 200G, 512G`. **256G does NOT exist**. Wrong RAM → inner NB lib jobs silently fail. See BUG-058.
+
 ## Test Commands
 
 | Command | What It Does |

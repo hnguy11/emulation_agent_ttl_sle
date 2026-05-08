@@ -36,7 +36,7 @@ Zebu ZSE5 emulation models for the `nvlsi7_n2p` DUT. It is designed for:
 | Debug a build/test failure | `05_knowledge_and_debugging/debug_workflow.md` |
 | Auto-detect failure phase | `05_knowledge_and_debugging/run_phase_detection_nvlax.sh` |
 | Expand symptoms from logs | `05_knowledge_and_debugging/symptom_rules.txt` |
-| Search known bugs | `05_knowledge_and_debugging/known_bugs_and_fixes/` (34 files) |
+| Search known bugs | `05_knowledge_and_debugging/known_bugs_and_fixes/` (35 files) |
 | Recognize a failure pattern | `05_knowledge_and_debugging/common_patterns.md` |
 | Document a new bug | `05_knowledge_and_debugging/bug_template.md` + `documentation_rules.md` |
 | Detailed build procedure (grdlbuild monitor, iterative fix, driverClk, etc.) | `06_skills/` |
@@ -68,7 +68,7 @@ NVL_AX_agent_workspace/
 │   ├── run_phase_detection_nvlax.sh    # Automated phase detection script
 │   └── known_bugs_and_fixes/            # 34 individual bug reports
 │       ├── bug_template.md              # Template with scoring headers
-│       └── BUG-001..034_*.md            # One file per bug
+│       └── BUG-001..058_*.md            # One file per bug
 └── 06_skills/                           # Detailed build procedure skills (migrated from ~/.copilot/skills/)
     ├── sle-build-grdlbuild-monitor.md           # Monitor grdlbuild progress, parse error logs
     ├── sle-build-iterative-build-monitor-fix.md # End-to-end build-fix cycle automation
