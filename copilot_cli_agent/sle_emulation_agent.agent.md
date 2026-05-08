@@ -27,6 +27,7 @@ KB_ROOT = `/nfs/site/disks/issp_ttl_emu_compile_001/copilot_agents/emulation_age
 | PCD port list changed, need to regenerate ttlpcdhpkg wrapper rtlchange | `$KB_ROOT/06_skills/sle-build-pcd-pkgpinlist-rtlchange-generation.md` |
 | driverClk is slow, analyzing zTime.log, FASTCLOCK DPO issues, SCC loops | `$KB_ROOT/06_skills/sle-build-zebu-driverclock-debug.md` |
 | Preparing a new SLE workarea for a pkg_ch IP refresh (clone base SLE, pull from new pkg_ch model on zsc10) | `$KB_ROOT/06_skills/sle-build-pkgch-refresh.md` |
+| Post-elab or post-build reset signal connectivity check (epd_on, pwrgd, cold/warm_boot_trigger, pltrst, clk_reqs) | `$KB_ROOT/06_skills/sle-build-reset-connectivity-check.md` |
 
 ## Your Workflow
 
@@ -357,6 +358,25 @@ After all 6 pass checks succeed, ask the user:
 
 - If **yes** → read `$KB_ROOT/06_skills/sle-build-pcd-bkc-integration.md` immediately and step the user through the full integration flow
 - If **no** → the build is complete — report success to the user
+
+### Post-Elab: Reset Signal Connectivity Check (non-blocking)
+
+This check can run as soon as the **analyze** stage completes — it does NOT require the full build to finish and does NOT block the build.
+
+Read `$KB_ROOT/06_skills/sle-build-reset-connectivity-check.md` and verify connectivity of these 6 critical reset signals:
+
+1. **epd_on** — PCD → Hub (Engine Power Domain on)
+2. **vdd2_pwrgd** — PCD → Hub (powergood handshake)
+3. **cold_boot_trigger** — PCD → Hub (cold reset sequencing)
+4. **warm_boot_trigger** — PCD → Hub (warm reset sequencing)
+5. **pltrst** — Platform → PCD (platform reset)
+6. **clk_reqs** — PCD ↔ Hub (cross-die clock requests)
+
+Two-phase check:
+- **Phase 1 (RTL source)**: grep for signal connections + check for dangerous force assigns/tieoffs on reset IO pads
+- **Phase 2 (elab output)**: verify no unconnected/floating warnings on these signals in elab logs
+
+Report a summary table to the user. If any signal fails → alert immediately but do NOT stop the build.
 
 ---
 

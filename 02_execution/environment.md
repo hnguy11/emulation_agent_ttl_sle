@@ -101,6 +101,7 @@ export WORKAREA=/nfs/site/disks/ive_sle_zsc11_tbaziza/models/integrate_bundle110
 
 ## NB/FM Configuration
 
+### NVL (zsc11 site)
 | Setting | Value |
 |---------|-------|
 | NB Pool | `zsc11_express` |
@@ -108,6 +109,48 @@ export WORKAREA=/nfs/site/disks/ive_sle_zsc11_tbaziza/models/integrate_bundle110
 | FM QSlot | `/prj/sv/nvl/emu/interactive` (NOT `/prj/sv/nvl/showstopper`) |
 | NB Feeder Host | `sccc14644327.zsc11.intel.com` |
 | FM Board Queue | `fm_zse5_g503-g514_express` |
+
+### TTL (zsc16 site)
+| Setting | Value |
+|---------|-------|
+| NB Pool | `zsc16_express` |
+| NB QSlot | `/PCH/CSS/TTL/emu` |
+| DVB jem compute | `p=zsc16_express,q=/PCH/CSS/TTL/emu` |
+| DVB cpp/vcssimmpp compute | `p=zsc16_express,q=/PCH/CSS/TTL/emu` |
+| resources.ini default | `p=zsc16_express,q=/PCH/CSS/TTL/emu,c=SLES15&&64G` |
+| resources.ini MEM32G_4C | `c=SLES15&&32G&&4C` (used by jem task) |
+
+## cfg/compute.cth — Required for TTL ZSE5 NB Builds
+
+> ⚠️ **CRITICAL — `cfg/compute.cth` must be populated for `-nb` builds at the zsc16 site**
+>
+> DVB's built-in `common/tool.cth` only has COMPUTE sections for `@sc`, `@pdx`, and `@zsc10`.
+> At zsc16, DVB calls `get_compute_cfg()` which requires the workarea's `cfg/compute.cth`
+> to be populated. Without it, all DVB NB subtasks (jem, vcssimmpp, cpp) fail to find a
+> valid compute resource.
+>
+> The file is included by `$WORKAREA/tool.cth` via:
+> ```
+> [INCLUDES] $WORKAREA/cfg/compute.cth
+> ```
+>
+> **Required content** (4 COMPUTE sections for zsc16):
+> ```
+> [COMPUTE jem@zsc16]
+> p=zsc16_express,q=/PCH/CSS/TTL/emu
+>
+> [COMPUTE vcssimmpp@zsc16]
+> p=zsc16_express,q=/PCH/CSS/TTL/emu
+>
+> [COMPUTE cpp@zsc16]
+> p=zsc16_express,q=/PCH/CSS/TTL/emu
+>
+> [COMPUTE _DEFAULT@zsc16]
+> p=zsc16_express,q=/PCH/CSS/TTL/emu
+> ```
+>
+> Verify the current content with: `cat $WORKAREA/cfg/compute.cth`
+> This file is NOT auto-generated — it must be configured manually per workarea.
 
 ## Disk Management
 

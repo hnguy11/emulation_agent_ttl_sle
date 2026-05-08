@@ -189,6 +189,76 @@ output/nvlsi7_n2p/emu/zebu_zebu/<EMU_MODEL>/zse5/.shadow/
 ls -lt output/nvlsi7_n2p/emu/zebu_zebu/<EMU_MODEL>/zse5/log/ | head -5
 ```
 
+## TTL ZSE5 Build (ttlbxpkg Workarea)
+
+### Build Command
+```bash
+cd /nfs/site/disks/issp_ttl_emu_compile_001/<workarea>   # e.g. pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+export WORKAREA=$(pwd)
+export LM_PROJECT=DDG-TTLPKG
+nohup grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb > /tmp/grdlbuild_ttlbx_nb.log 2>&1 &
+```
+
+Key differences from NVL builds:
+- **Target syntax**: `ttlbx_n2p:emu:sle:<target> -nb` — no leading colon (unlike NVL's `:emu_build:zebu:...`)
+- **`-nb`** (NB mode) instead of `-Penv=immediate` — submits DVB sub-tasks (jem, vcssimmpp, cpp) to NB queue
+- DVB output under: `output/ttlbx_n2p/emu/zebu_zebu/pkg_chpr_p2e4_816_fast/zse5/`
+- Gradle task logs under: `output/grdlbuild/logs/ttlbx_n2p.<stage>.log`
+
+### TTL DVB Task Sequence (with `-nb`)
+| Task | Log | Notes |
+|------|-----|-------|
+| `template_gen`, `pkg_repo_prep` | `common.*.log` | First tasks, ~1-5 min each |
+| `gen_filelist` | `ttlbx_n2p.filelists_rtl.gen_filelist.log` | Grows to 10-70MB while running |
+| `jem` | `ttlbx_n2p.codegen_dv.jem.log` | Submits per-lib sub-jobs to NB; ~20 min |
+| `vcssimmpp` | `ttlbx_n2p.sim.vcssimmpp.vcssimmpp_analysis.log` | VCS analysis per lib; ~20 min |
+| `cpp` | `ttlbx_n2p.codegen_dv.cpp.log` | C++ compile; ~5-10 min |
+| `vcssimmpp_elab` | `ttlbx_n2p.sim.vcssimmpp.vcssimmpp_elab.log` | VCS elaboration |
+| `pkg_chpr_p2e4_816_fast_zse` | `ttlbx_n2p.emu.sle.pkg_chpr_p2e4_816_fast_zse.log` | Final ZSE5 compile (hours) |
+
+### Recovering from Stale DVB `.done` File Timestamps
+
+DVB uses empty `.done` marker files to track which libs are already compiled:
+- **Old timestamp** (e.g., May 1) = "Skipped" — already done, not resubmitted
+- **Today's timestamp** = "Failed" — DVB thinks a previous run tried and failed; will retry
+
+When a previous run fails (e.g., due to `getLf` / LM_PROJECT error), DVB may reset `.done` files to today's timestamp, causing all downstream runs to treat those libs as "Failed" until fixed.
+
+**Diagnosis:**
+```bash
+# Find .done files with today's timestamps (these are stale/failed)
+find $WORKAREA/output/ttlbx_n2p/jem/lib/ -name "*.done" -newer /tmp/some_old_ref_file | head -10
+ls -la $WORKAREA/output/ttlbx_n2p/jem/lib/*/.*.done | awk '{print $6,$7,$8,$NF}'
+
+# Check a lib's indicators to confirm it previously PASSED
+cat $WORKAREA/output/ttlbx_n2p/jem/lib/<lib_name>/.indicators
+# ✅ Expected: {"lib_name":{"STATUS":"PASS"}}
+```
+
+**Fix — restore timestamps using a passing reference file:**
+```bash
+# 1. Find a reference file with a known-good timestamp (from a passing run)
+REF=$(find $WORKAREA/output/ttlbx_n2p/jem/lib/ -name "*.done" | xargs ls -lt | grep "May  1" | tail -1 | awk '{print $NF}')
+
+# 2. Reset all stale .done files to the reference timestamp
+find $WORKAREA/output/ttlbx_n2p/jem/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+
+# Same for vcssimmpp and cpp
+find $WORKAREA/output/ttlbx_n2p/vcssimmpp/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+find $WORKAREA/output/ttlbx_n2p/cpp/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+```
+
+**Fix — create missing `.done` files (cpp libs with no marker at all):**
+```bash
+# If a cpp lib compiled successfully (has .so file) but has no .done file:
+ls $WORKAREA/output/ttlbx_n2p/cpp/lib/<lib_name>/
+# If libuvm_val_cpp.so exists but .uvm_val_cpp.done is missing:
+touch -r $WORKAREA/output/ttlbx_n2p/cpp/lib/<lib_name>/analysis.log \
+         $WORKAREA/output/ttlbx_n2p/cpp/lib/<lib_name>/.<lib_name>.done
+```
+
+**After fixing .done files**: Kill the old feeder (if still running), then relaunch grdlbuild. DVB will see all libs as "Skipped" and proceed directly to the next stage.
+
 ## Build Session Log
 
 ### bundle1106 (GK-integrated, 2026-04-26)

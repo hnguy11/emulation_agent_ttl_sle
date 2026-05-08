@@ -309,6 +309,10 @@ cat /tmp/build_report_bN.txt | /bin/mail -s "[Build Report] Build N FAILED - Fix
 
 | Error Pattern | Root Cause | Fix | Risk |
 |---|---|---|---|
+| `getLf: error: SC_HNGUY11_UNKN is not a valid LM_PROJECT` | VSCode/Copilot shell auto-sets invalid `LM_PROJECT` fallback | Always `export LM_PROJECT=DDG-TTLPKG` before grdlbuild | Low |
+| DVB jem/vcssimmpp/cpp: libs show "Failed" but `.done` files exist from earlier date | getLf failure reset `.done` timestamps to today — DVB treats today's timestamp as "Failed" | `find output/ttlbx_n2p/jem/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;` (see build_flow.md .done recovery procedure) | Low |
+| DVB cpp: libs show "Failed", no `.done` file present at all | cpp compiled successfully but crashed before writing `.done` marker | `touch -r output/ttlbx_n2p/cpp/lib/<lib>/analysis.log output/ttlbx_n2p/cpp/lib/<lib>/.<lib>.done` | Low |
+| DVB jem/vcssimmpp/cpp: all NB sub-tasks fail immediately at license checkout | `cfg/compute.cth` is empty — DVB can't find compute resource for @zsc16 | Populate `cfg/compute.cth` with 4 COMPUTE sections (see environment.md cfg/compute.cth section) | Low |
 | `File does not exist` in dvJsonGenerator `-F-` | Stale path in global opts file (e.g., RZL path in TTL workspace) | Update path in `global_fpgasim_vlog_opts.f` to match ZSE equivalent | Low |
 | Mass `Error-[SVS]` / `Error-[SVSTS]` in vlogan | Missing `-sverilog` flag | Ensure `analysis_opts` symlinks exist in `verif/emu/emuvcs/` (flow dir) | Low |
 | `analysis_opts` missing from JSON | Symlinks missing in `verif/emu/<FLOW_NAME>/` directory | Create symlinks: `global_fpga*.f → ../rtl_cfg/global_fpga*.f` | Low |

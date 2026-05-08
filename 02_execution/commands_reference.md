@@ -27,12 +27,49 @@ tags: [commands, shell, reference, grdlbuild, simregress, nbstatus]
 > export LM_PROJECT=DDG-TTLPKG # prevents getLf license failures for jem/vcssimmpp/cpp NB tasks
 > ```
 
+### NVL Builds (zsc11 site)
 | Command | What It Does | When To Use |
 |---------|-------------|-------------|
 | `grdlbuild :emu_build:zebu:<MODEL_TARGET> -Penv=immediate` | Full build from scratch | First build or major changes |
 | `grdlbuild :emu_build:zebu:<MODEL_TARGET> -id` | Resume from Zebu stage | After mid-build failure |
 | `grdlbuild :emu_build:zebu:<MODEL_TARGET>_post_zcui` | Post-build steps only | After fe_be completes |
 | `bash scripts/fix_zse5_libs.sh` | Fix library symlinks | After every fe_be build, before testing |
+
+### TTL ZSE5 Builds (zsc16 site — ttlbxpkg workareas)
+```bash
+# Prerequisite — always set before launching
+cd /nfs/site/disks/issp_ttl_emu_compile_001/<workarea>  # include .1/.2 suffix!
+export WORKAREA=$(pwd)
+export LM_PROJECT=DDG-TTLPKG
+```
+
+| Command | What It Does | When To Use |
+|---------|-------------|-------------|
+| `nohup grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb > /tmp/grdlbuild_ttlbx_nb.log 2>&1 &` | Full TTL ZSE5 NB build | Initial launch or relaunch |
+| `ls -lt output/grdlbuild/logs/*.log \| head -10` | Check which grdlbuild tasks are running/done | Monitor progress |
+| `tail -30 output/grdlbuild/logs/ttlbx_n2p.codegen_dv.jem.log` | Check jem DVB task log | After jem starts |
+| `cat output/ttlbx_n2p/jem/build_summary.log` | DVB jem build summary (Passed/Skipped/Failed libs) | Diagnose jem failures |
+| `cat output/ttlbx_n2p/vcssimmpp/build_summary.log` | DVB vcssimmpp build summary | Diagnose vcssimmpp failures |
+| `cat output/ttlbx_n2p/cpp/build_summary.log` | DVB cpp build summary | Diagnose cpp failures |
+
+### DVB `.done` File Recovery (TTL — after getLf / license failures)
+```bash
+# Find libs with stale (today's) .done timestamps
+ls -la output/ttlbx_n2p/jem/lib/*/.*.done | awk '{print $6,$7,$8,$NF}' | grep "$(date +%b)"
+
+# Find a reference file with a good (old) timestamp
+REF=$(ls -lt output/ttlbx_n2p/jem/lib/*/.*.done | grep -v "$(date +%b  %e)" | tail -1 | awk '{print $NF}')
+
+# Reset stale .done files to old timestamp
+find output/ttlbx_n2p/jem/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+find output/ttlbx_n2p/vcssimmpp/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+find output/ttlbx_n2p/cpp/lib/ -name "*.done" -newer "$REF" -exec touch -r "$REF" {} \;
+
+# Create missing .done files (cpp libs that compiled but have no marker)
+# Only do this when .indicators shows STATUS:PASS and the .so file exists
+touch -r output/ttlbx_n2p/cpp/lib/<lib>/analysis.log \
+         output/ttlbx_n2p/cpp/lib/<lib>/.<lib>.done
+```
 
 ## Test Commands
 
