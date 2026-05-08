@@ -19,13 +19,13 @@
 ### Step 1: Clone the Knowledge Base
 
 ```bash
-git clone https://github.com/tbaziza/emulation_agent.git
+git clone https://github.com/hnguy11/emulation_agent_ttl_sle.git
 ```
 
 ### Step 2: Run the init script
 
 ```bash
-bash emulation_agent/copilot_cli_agent/init_agent.sh
+bash emulation_agent_ttl_sle/copilot_cli_agent/init_agent.sh
 ```
 
 The script will:
@@ -42,7 +42,7 @@ Once the script prints **✅ Setup Complete!**, the agent is ready. Launch Copil
 /agent sle_emulation_agent
 ```
 
-> 💡 **To update later**, `git pull` inside `emulation_agent/` and re-run `init_agent.sh` with the same working disk path.
+> 💡 **To update later**, `git pull` inside `emulation_agent_ttl_sle/` and re-run `init_agent.sh` with the same working disk path.
 
 ---
 
@@ -105,8 +105,13 @@ flowchart TD
     DRIVFIX -->|"🔁 rebuild"| COMPILE
 
     VERIFY["✅ VERIFY BUILD\n━━━━━━━━━━━━━━━━━━━━━\n6 pass checks\nshadow files · backend dirs\nMuDb · libs · readmem · logs"]
-    VERIFY -->|"✅ all 6 pass"| DONE
+    VERIFY -->|"✅ all 6 pass"| POSTBUILD
     VERIFY -->|"❌ fail"| DEBUG
+
+    COMPILE -->|"post-elab"| RESETCHECK
+
+    RESETCHECK["🔌 RESET CONNECTIVITY CHECK\n━━━━━━━━━━━━━━━━━━━━━\nNon-blocking · runs post-elab\n6 signals: epd_on, cold/warm_boot,\npltrst, vdd2_pwrgd, slp_s3/s4/s5\nVerify pad→hub end-to-end paths"]
+    RESETCHECK -->|"continue"| VERIFY
 
     COMPILE -->|"❌ build error"| DEBUG
 
@@ -117,8 +122,13 @@ flowchart TD
     DOCUMENT["📄 DOCUMENT\n━━━━━━━━━━━━━━━━━━━━━\nCreate new BUG file\nYAML frontmatter + fix\nAdd to Knowledge Base"]
     DOCUMENT -->|"🔁 re-run"| COMPILE
 
+    POSTBUILD["📦 POST-BUILD CHECKS\n━━━━━━━━━━━━━━━━━━━━━\nPCD BKC Integration needed?\nIf yes → rsync + apply SLE delta"]
+    POSTBUILD -->|"done"| DONE
+
     DONE([🎉 Build Complete])
 
+    style POSTBUILD fill:#4a1a6b,stroke:#b366e0,stroke-width:3px,color:#fff
+    style RESETCHECK fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
     style SETUP fill:#2a2a5a,stroke:#7777cc,stroke-width:3px,color:#fff
     style COMPILE fill:#0d3b66,stroke:#4a9eff,stroke-width:3px,color:#fff
     style DRIVCLK fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
@@ -145,7 +155,11 @@ flowchart TD
 
 > ⚠️ **Non-deterministic risk**: The same workspace can produce wildly different driverClk across builds (e.g., 612 kHz vs 10 kHz from identical source). A single good result does NOT mean the issue is resolved.
 
+**Post-Elab Reset Connectivity Check** — After the analyze/elab phase completes, the agent can run a non-blocking connectivity check on 6 critical reset signals (epd_on, cold_boot_trigger, warm_boot_trigger, pltrst, vdd2_pwrgd, slp_s3/s4/s5). Verifies end-to-end paths from PCD IO pads through bdie tran gates to hub ports. Does not gate the build — issues are reported for user review.
+
 **Verify** — Runs 6 pass checks after build completes. All must pass.
+
+**Post-Build: PCD BKC Integration** — After verification passes, the agent asks whether a PCD BKC integration is needed. If yes, walks you through the rsync + SLE delta application flow.
 
 **Debug** — If anything fails, detects the phase (BUILD / ANALYZE/ELAB / SYNTHESIS), collects symptoms, searches 57 known bug files, and applies the best-matched fix before re-running.
 
@@ -238,6 +252,12 @@ flowchart TD
 | `integrate new PCD BKC` | rsync from FM + apply SLE delta |
 | `regenerate ttlpcdhpkg rtlchange` | PCD port list changed → rebuild wrapper rtlchange |
 
+### 🔌 Post-Build Checks
+| Prompt | What it does |
+|--------|-------------|
+| `check reset connectivity` | Verify 6 critical reset signal paths end-to-end (post-elab) |
+| `do we need PCD BKC integration?` | Check if a new PCD BKC release needs integration |
+
 ### 🔄 pkg_ch IP Refresh
 | Prompt | What it does |
 |--------|-------------|
@@ -290,7 +310,7 @@ When a failure occurs, the agent searches **57 known bugs** and scores each matc
 ## 📂 Knowledge Base Structure
 
 ```
-📁 emulation_agent/
+📁 emulation_agent_ttl_sle/
 ├── 📄 00_index.md                          ← Start here — routing table + file tree
 ├── 📁 01_agent_core/                       ← Identity, safety rules, AI guidelines
 ├── 📁 02_execution/                        ← Build commands, environment setup
@@ -312,6 +332,7 @@ When a failure occurs, the agent searches **57 known bugs** and scores each matc
 │   ├── sle-build-fpga-elab-missing-cell-fix.md ← FPGA CFCILFBI fix
 │   ├── sle-build-fpga-rtlchanges-postcheck-fix.md ← FPGA postcheck fix
 │   ├── sle-build-new-target-analysis-opts.md ← New build target analysis opts
+│   ├── sle-build-reset-connectivity-check.md ← Post-elab reset signal connectivity check
 │   └── sle-build-dfx-target-enablement.md  ← DFX target enablement
 └── 📁 copilot_cli_agent/                   ← Agent instruction file + init script
 ```
