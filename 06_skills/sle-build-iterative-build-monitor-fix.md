@@ -44,33 +44,39 @@ vscode_askQuestions with questions:
 
 ### Step 1: Launch Build
 
-> ⚠️ **CRITICAL — Always validate WORKAREA before launching**
+> ⚠️ **CRITICAL — Always validate WORKAREA and LM_PROJECT before launching**
 >
-> The `$WORKAREA` env var may have been set by a previous `cth_psetup` run in a **different directory**.
+> Two environment variables **must** be set explicitly before every `grdlbuild` invocation:
+>
+> **1. WORKAREA** — The `$WORKAREA` env var may have been set by a previous `cth_psetup` run in a **different directory**.
 > A stale or wrong WORKAREA silently corrupts the build: grdlbuild submits NB jobs using the wrong
 > path for resources.ini (`GRDLBUILD_COMPUTE_SETTINGS`), causing tasks to land in the wrong NB qslot.
 >
-> **Before every `grdlbuild` invocation, always explicitly set WORKAREA to the exact intended path**
-> and verify it matches `$PWD`:
+> **2. LM_PROJECT** — The VSCode/Copilot shell auto-constructs an invalid value (e.g., `SC_HNGUY11_UNKN`).
+> Intel's `getLf` license fetcher rejects it, causing **all DVB NB subtasks (jem, vcssimmpp, cpp) to fail
+> immediately** with `getLf: error: SC_HNGUY11_UNKN is not a valid LM_PROJECT`. Correct value: `DDG-TTLPKG`.
 >
 > ```bash
 > # Validate: WORKAREA must exactly match your target workarea (including any .1, .2 suffix, etc.)
-> echo "WORKAREA : $WORKAREA"
-> echo "PWD      : $(pwd)"
-> # If they differ, fix WORKAREA before proceeding
+> echo "WORKAREA   : $WORKAREA"
+> echo "PWD        : $(pwd)"
+> echo "LM_PROJECT : $LM_PROJECT"   # must be DDG-TTLPKG, not SC_HNGUY11_UNKN or similar
+> # If either is wrong, fix before proceeding
 > ```
 >
-> **Never assume `$WORKAREA` is correct from a prior shell session.** Always set it explicitly.
+> **Never assume these are correct from a prior shell session.** Always set them explicitly.
 
 ```tcsh
 cd /path/to/workspace          # e.g. .../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
 setenv WORKAREA $PWD           # set WORKAREA to the exact path including any suffix (.1, .2, etc.)
+setenv LM_PROJECT DDG-TTLPKG   # REQUIRED for TTL builds — prevents getLf license failures
 grdlbuild <TARGET> -nb
 ```
 - `setenv WORKAREA` **MUST** be set before calling `grdlbuild` — the CTH wrapper uses it to set
   `GRDLBUILD_COMPUTE_SETTINGS=$WORKAREA/flows/grdlbuild/resources.ini`, which controls the NB
   pool/qslot for all grdlbuild task submissions. A wrong WORKAREA causes tasks to land in the
   wrong NB qslot (e.g., `/PCH/Client_System_Solution` instead of `/PCH/CSS/TTL/emu`).
+- `setenv LM_PROJECT DDG-TTLPKG` **MUST** be set — without it all jem/vcssimmpp/cpp NB tasks fail on license checkout.
 - Do **NOT** pass `--project-dir` or `-- make_args=...` — grdlbuild handles these internally via its recipe
 - Use `-nb` for NB-submitted builds (ZSE5/FPGA); use `-id` to skip already-completed tasks
 - Launch in a **background terminal** since builds run for hours
@@ -79,6 +85,7 @@ grdlbuild <TARGET> -nb
 **Concrete example (FPGA VCS):**
 ```tcsh
 setenv WORKAREA /nfs/site/disks/issp_ttl_emu_compile_001/pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.fpga_vcs_enablement
+setenv LM_PROJECT DDG-TTLPKG
 grdlbuild :ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -id
 ```
 
@@ -376,10 +383,11 @@ cat /tmp/build_report.txt | /bin/mail -s "[Build Report] <subject>" <email> && e
 ### Step 6: Relaunch Build
 ```tcsh
 setenv WORKAREA /path/to/workspace
+setenv LM_PROJECT DDG-TTLPKG
 grdlbuild <TARGET> -id
 ```
 Launch in background terminal. The `-id` flag ensures completed phases aren't re-run.
-**IMPORTANT**: `setenv WORKAREA` must be set before `grdlbuild`. Do NOT pass `--project-dir` or `-- make_args=...`.
+**IMPORTANT**: `setenv WORKAREA` and `setenv LM_PROJECT DDG-TTLPKG` must both be set before `grdlbuild`. Do NOT pass `--project-dir` or `-- make_args=...`.
 
 ### Step 7: Repeat
 Continue monitoring from Step 2 until:
@@ -534,6 +542,7 @@ ZeBu builds use a different orchestrator (**zCui**) than VCS builds. After grdlb
 Same as VCS — grdlbuild handles the launch:
 ```tcsh
 setenv WORKAREA /path/to/workspace
+setenv LM_PROJECT DDG-TTLPKG
 grdlbuild :ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse -id
 ```
 Launch in a background terminal. grdlbuild will set up the environment and invoke zCui.

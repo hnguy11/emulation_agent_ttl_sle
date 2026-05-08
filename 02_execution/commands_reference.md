@@ -21,6 +21,12 @@ tags: [commands, shell, reference, grdlbuild, simregress, nbstatus]
 
 ## Build Commands
 
+> ⚠️ **CRITICAL — Before every `grdlbuild` invocation, always set both:**
+> ```bash
+> export WORKAREA=$(pwd)        # exact path including .1/.2 suffix
+> export LM_PROJECT=DDG-TTLPKG # prevents getLf license failures for jem/vcssimmpp/cpp NB tasks
+> ```
+
 | Command | What It Does | When To Use |
 |---------|-------------|-------------|
 | `grdlbuild :emu_build:zebu:<MODEL_TARGET> -Penv=immediate` | Full build from scratch | First build or major changes |

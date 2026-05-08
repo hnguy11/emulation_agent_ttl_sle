@@ -25,10 +25,12 @@ on the ZSE5 Zebu platform. The build system is `grdlbuild` (Gradle wrapper over 
 ## Pre-Compilation Steps
 
 ```bash
-# Step 1: Set up environment — ALWAYS set WORKAREA explicitly
+# Step 1: Set up environment — ALWAYS set WORKAREA and LM_PROJECT explicitly
 cd /nfs/site/disks/ive_sle_zsc11_tbaziza/models/integrate_bundle1106
-export WORKAREA=$(pwd)   # CRITICAL: always set from $PWD after cd, never rely on inherited value
-echo "WORKAREA: $WORKAREA"  # verify it is exactly correct (check for .1/.2 suffix etc.)
+export WORKAREA=$(pwd)       # CRITICAL: always set from $PWD after cd, never rely on inherited value
+export LM_PROJECT=DDG-TTLPKG  # CRITICAL: VSCode/Copilot shell sets an invalid fallback (SC_HNGUY11_UNKN);
+                               # getLf rejects it and all DVB NB subtasks (jem, vcssimmpp, cpp) fail instantly
+echo "WORKAREA: $WORKAREA  LM_PROJECT: $LM_PROJECT"  # verify both are correct
 
 # Step 2: Verify disk space (need at least 200GB free for full build)
 df -h /nfs/site/disks/ive_sle_zsc11_tbaziza | tail -1

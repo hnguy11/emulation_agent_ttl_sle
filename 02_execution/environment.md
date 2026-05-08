@@ -77,6 +77,28 @@ export WORKAREA=/nfs/site/disks/ive_sle_zsc11_tbaziza/models/integrate_bundle110
 >
 > **Never rely on an inherited `$WORKAREA` from a prior session — always set it explicitly.**
 
+> ⚠️ **CRITICAL — LM_PROJECT must be set to `DDG-TTLPKG` before every TTL build**
+>
+> The VSCode/Copilot shell auto-constructs `LM_PROJECT=SC_HNGUY11_UNKN` (or similar fallback),
+> which is **not a valid project code**. Intel's `getLf` license fetcher rejects it, causing
+> **all DVB NB subtasks (jem, vcssimmpp, cpp) to fail immediately** with:
+> ```
+> getLf: error: SC_HNGUY11_UNKN is not a valid LM_PROJECT
+> ```
+>
+> **Before every `grdlbuild` run for TTL:**
+> ```bash
+> export LM_PROJECT=DDG-TTLPKG
+> ```
+>
+> **Full prerequisite sequence before launching any TTL grdlbuild:**
+> ```bash
+> cd /exact/path/to/workarea   # including any .1 / .2 suffix
+> export WORKAREA=$(pwd)
+> export LM_PROJECT=DDG-TTLPKG
+> echo "WORKAREA=$WORKAREA  LM_PROJECT=$LM_PROJECT"  # verify both
+> ```
+
 ## NB/FM Configuration
 
 | Setting | Value |
