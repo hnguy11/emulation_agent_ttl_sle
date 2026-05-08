@@ -363,20 +363,37 @@ After all 6 pass checks succeed, ask the user:
 
 This check can run as soon as the **analyze** stage completes — it does NOT require the full build to finish and does NOT block the build.
 
-Read `$KB_ROOT/06_skills/sle-build-reset-connectivity-check.md` and verify connectivity of these 6 critical reset signals:
+Read `$KB_ROOT/06_skills/sle-build-reset-connectivity-check.md` and verify connectivity across 3 signal groups:
 
+**Group A — Reset/Power:**
 1. **epd_on** — PCD → Hub (Engine Power Domain on)
 2. **vdd2_pwrgd** — PCD → Hub (powergood handshake)
 3. **cold_boot_trigger** — PCD → Hub (cold reset sequencing)
 4. **warm_boot_trigger** — PCD → Hub (warm reset sequencing)
 5. **pltrst** — Platform → PCD (platform reset)
-6. **clk_reqs** — PCD ↔ Hub (cross-die clock requests)
+6. **pmsync_pmdown_own_req/ack** — Hub punit (PM sync power-down handshake)
+7. **d2d_pma_fsm_state (hub2pcd)** — Hub → PCD (D2D PMA link FSM)
+
+**Group B — IOSF Sideband Structural Path:**
+8. **iosfsb_gpsbb_side_ism_fabric/agent** — PCD d2d_iiosf ISM states
+9. **sb_link_rst_b** — PCD SB link reset (if disconnected, SB is dead)
+10. **PMA_FSM_state** — PCD SB PMA controller (physical link management)
+11. **d2d_hiosf_sb_link** — Hub-side D2D HIOSF SB link module
+12. **JEM tracker (pch_d2d_iiosf)** — if elaborated, confirms Group B/C structurally connected
+
+**Group C — Cross-Die Clock Requests:**
+13. **XTAL_CLK_req_h2i / ack_i2h** — Hub requests XTAL from PCD
+14. **CRO_CLK_req_h2i / ack_i2h** — Hub requests CRO from PCD
+15. **OCB_CLK_req_h2i** — Hub requests RTC/OCB from PCD
+16. **pmc_wake_clk_req / ack** — PMC wake clock handshake
 
 Two-phase check:
 - **Phase 1 (RTL source)**: grep for signal connections + check for dangerous force assigns/tieoffs on reset IO pads
-- **Phase 2 (elab output)**: verify no unconnected/floating warnings on these signals in elab logs
+- **Phase 2 (elab output)**: verify no unconnected/floating warnings on these signals in elab logs + verify JEM tracker elab
 
 Report a summary table to the user. If any signal fails → alert immediately but do NOT stop the build.
+
+> ⚠️ **IOSF SB message tracing** (individual doorbell writes, IPC commands, etc.) is NOT possible at build/elab time — those are runtime transactions. This check verifies only the hardware *structural* path. For runtime SB message debugging, see `emu-ipc-doorbell-debug` and `emu-hung-transaction-debug` skills.
 
 ---
 
