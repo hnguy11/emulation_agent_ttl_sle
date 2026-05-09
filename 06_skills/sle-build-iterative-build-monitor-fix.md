@@ -855,6 +855,24 @@ while true; do
         fi
     fi
 
+    # ── POST_ANALYZE FAILURE DETECTION ──────────────────────────────────────
+    # post_analyze (rtlchanges_postcheck) writes directly to $BUILD/zse5/log/ root,
+    # NOT into a timestamped subdir — so failure_info.log detection above misses it.
+    # Check post_analyze.log for RuntimeError which signals postcheck failure.
+    if [ "${POST_ANALYZE_REPORTED:-0}" = "0" ]; then
+        POST_LOG="$BUILD/zse5/log/post_analyze.log"
+        POSTCHECK_LOG="$BUILD/zse5/log/rtlchanges_postcheck.log"
+        if [ -f "$POST_LOG" ] && grep -q "RuntimeError\|ERROR: CHECK FAILED" "$POST_LOG" 2>/dev/null; then
+            ERRORS=$(grep "ERROR:" "$POSTCHECK_LOG" 2>/dev/null | head -10)
+            log "❌ POST_ANALYZE FAILED (rtlchanges_postcheck):"
+            while IFS= read -r line; do log "  $line"; done <<< "$ERRORS"
+            send_email "[ZeBu FAIL post_analyze] $MODEL ($WORKAREA_STEM)" \
+                "rtlchanges_postcheck failed.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$ERRORS\n\nFix: update rtlchanges_optional_ips.json and relaunch."
+            POST_ANALYZE_REPORTED=1
+            exit 1
+        fi
+    fi
+
     # ── ZCUI MONITORING (once zcui.work/ appears) ───────────────────────────
     ZCUI_LOG="$BUILD/zse5/zcui.work/zCui/log/zCui.log"
     STATUS_LOG="$BUILD/zse5/zcui.work/compilation_status.log"

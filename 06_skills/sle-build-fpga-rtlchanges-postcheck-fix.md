@@ -62,13 +62,17 @@ This JSON file maps rtlchange directory path substrings to arrays of model regex
 
 ### Key Regex Pattern: `^(?!.*fpga)`
 
-For FPGA builds, the model name contains `fpga` (e.g., `pkg_chpr_cfgr_p2e0_816_fast_fpga_slimsim`). To make an IP's rtlchanges optional **only for FPGA models**, use the negative lookahead regex:
+For FPGA builds, the model name contains `fpga` (e.g., `pkg_chpr_cfgr_p2e0_816_fast_fpga_slimsim`). To make an IP's rtlchanges **required for ZSE5 models but optional for FPGA models**, use the negative lookahead regex:
 
 ```
 ^(?!.*fpga)
 ```
 
-This regex matches model names that do **NOT** contain `fpga` — meaning the rtlchange is required for non-FPGA models but optional for FPGA models.
+This regex matches model names that do **NOT** contain `fpga`. This means: the postcheck will REQUIRE the rtlchange to be compiled when the model name doesn't include "fpga" (i.e., ZSE5 models). It will SKIP the check for FPGA models.
+
+> ⚠️ **CRITICAL PITFALL**: `["^(?!.*fpga)"]` means "required for ALL non-FPGA models" — this includes ZSE5 p2e4 and cfgr. If a `pcd_cfgr/` sub-entry uses `["^(?!.*fpga)"]`, it will make pcd_cfgr sub-files required for the ZSE5 p2e4 model — which does NOT compile pcd_cfgr files — causing a postcheck failure.
+>
+> **Correct regex for pcd_cfgr sub-entries**: use `["pkg_chpr_cfgr"]` (required only for cfgr models, optional for p2e4 and all FPGA).
 
 ### Example Entries
 
@@ -86,9 +90,12 @@ From a working FPGA VCS build (`pkg_chpr_cfgr_p2e0_816_fast_fpga_slimsim`):
     "cdie_816_n2p/src/val/emu/testbench": ["^(?!.*fpga)"],
     "cdie_816_n2p/subip/hip/cdie_n2p_core/core/msid": ["^(?!.*fpga)"],
     "cdie_816_n2p/subip/sip/cdie_ccf_n2p": ["^(?!.*fpga)"],
-    "pcd_cfgr/emu/pchlp/monitors": ["^(?!.*fpga)"]
+    "pcd_cfgr/emu/pchlp/monitors": ["pkg_chpr_cfgr"],
+    "pcd_cfgr/emu/pchlp/pcd_tb/espi": ["pkg_chpr_cfgr"]
 }
 ```
+
+> **Why `pkg_chpr_cfgr` for pcd_cfgr sub-entries?** The broader entry `"rtlchanges/pcd_cfgr/"` already says all of pcd_cfgr is required for cfgr models. The sub-entries must use `["pkg_chpr_cfgr"]` (not `["^(?!.*fpga)"]`) to avoid requiring those files in the ZSE5 p2e4 model, which doesn't compile pcd_cfgr content.
 
 ### Pre-existing Entries
 
@@ -97,9 +104,13 @@ The JSON file also has entries for non-FPGA model filtering (using positive rege
 ## Procedure
 
 1. Read the postcheck log to identify which directories failed
-2. For each failing directory, add a key to `rtlchanges_optional_ips.json` with value `["^(?!.*fpga)"]`
-3. Relaunch the build with `-id` — analysis won't re-run, only `post_analyze` onwards will execute
-4. The fix is **low risk** — it only affects postcheck validation, not the actual compilation
+2. For each failing directory, determine the correct required-model regex:
+   - If the rtlchange is for a **hub/cdie IP** that should be compiled in all ZSE5 models: use `["^(?!.*fpga)"]`
+   - If the rtlchange is for a **cfgr-specific IP** (e.g., `pcd_cfgr/`): use `["pkg_chpr_cfgr"]`
+   - If the rtlchange should **never** be required (FPGA-only files, obsolete files): use `[]`
+3. Add the entry to `rtlchanges_optional_ips.json`
+4. Relaunch the build with `-id` — analysis won't re-run, only `post_analyze` onwards will execute
+5. The fix is **low risk** — it only affects postcheck validation, not the actual compilation
 
 ## Pitfalls
 
