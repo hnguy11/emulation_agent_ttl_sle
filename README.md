@@ -81,6 +81,17 @@ You: compile the model
 
 > **Converged TTLbx** launches all 3 TTLbx targets in a single `grdlbuild` call, sharing common dependency stages. TTLhm has only one target — no converged option.
 
+### Build Types
+
+The agent handles two fundamentally different build types — the target suffix and output path are the key signals:
+
+| Build Type | Target suffix | Output path | Orchestrator | Duration |
+|------------|--------------|-------------|-------------|---------|
+| **ZeBu / ZSE5** | `emu:sle:..._zse` | `output/.../zebu_zebu/` | zCui | ~25-50 hrs |
+| **FPGA slimsim** | `emu:fpga:..._vcs` | `output/.../fpgasim_emuvcs/` | VCS | ~2-5 hrs |
+
+The agent uses different logs, failure signals, monitoring scripts, and debug commands depending on build type. It always identifies the type from the grdlbuild target before running any commands.
+
 ---
 
 ## 🔄 Typical Workflow

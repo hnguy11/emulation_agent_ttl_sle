@@ -1,6 +1,6 @@
 ---
 name: sle-build-grdlbuild-monitor
-description: "Monitor grdlbuild compilation progress and diagnose build failures. USE WHEN: grdlbuild VCS/ZSE build is running, need to check progress, detect failures early, identify which phase or task failed, parse error logs from analysis/elaboration/distcomp stages. Covers: grdlbuild.log monitoring, VCS analysis error parsing, elaboration error parsing, distcomp partition failure diagnosis, NB farm job status. Also covers: ZeBu (ZSE5) build monitoring via zCui orchestrator — compilation_status.log, zCui.log phase tracking, synthesis Bundle failure diagnosis, zTopBuild.log force assign verification (HFA001), zTime.log driverClk analysis, FPGA backend PnR progress tracking (spawned/PASSED/FAILED job counts), non-deterministic driverClk placement risk."
+description: "Monitor grdlbuild compilation progress and diagnose build failures. USE WHEN: grdlbuild VCS/ZSE build is running, need to check progress, detect failures early, identify which phase or task failed, parse error logs from analysis/elaboration/distcomp stages. Covers: build type identification (ZeBu/ZSE5 vs FPGA VCS slimsim — different outputs, logs, failure signals), grdlbuild.log monitoring, VCS analysis error parsing, elaboration error parsing, distcomp partition failure diagnosis, NB farm job status. Also covers: ZeBu (ZSE5) build monitoring via zCui orchestrator — compilation_status.log, zCui.log phase tracking, synthesis Bundle failure diagnosis, zTopBuild.log force assign verification (HFA001), zTime.log driverClk analysis, FPGA backend PnR progress tracking (spawned/PASSED/FAILED job counts), non-deterministic driverClk placement risk. Side-by-side ZeBu vs FPGA VCS comparison table with failure triage decision tree."
 argument-hint: "Provide the WORKAREA path or grdlbuild log path. Optionally specify the MODEL name."
 ---
 
@@ -12,6 +12,28 @@ argument-hint: "Provide the WORKAREA path or grdlbuild log path. Optionally spec
 - You need to check if specific phases (codegen, analysis, elaboration) succeeded
 - You want to find the first error in a long build log
 
+## Build Type Quick Reference
+
+Before doing anything, identify which build type you are dealing with. The grdlbuild target suffix and output directory are the definitive signals:
+
+| Build Type | grdlbuild target suffix | Output directory | Orchestrator | Key logs |
+|------------|------------------------|-----------------|-------------|----------|
+| **ZeBu / ZSE5** | `_zse` (e.g., `pkg_chpr_p2e4_816_fast_zse`) | `output/$DUT/emu/zebu_zebu/$MODEL/zse5/` | zCui | `zCui.log`, `zTime.log`, `zTopBuild.log` |
+| **FPGA slimsim** | `_vcs` with `emu:fpga:` prefix | `output/$DUT/emu/fpgasim_emuvcs/$MODEL/vcs/` | VCS | `emu_gen.log`, `analyze_summary.log`, `elab.log` |
+
+> **Common confusion**: the `emuvcs_emuvcs` path (line below) is an **older VCS-only build variant** — it is NOT ZeBu. ZeBu always goes to `zebu_zebu/`. The FPGA slimsim model used in TTLbx SLE builds uses `fpgasim_emuvcs/`. All monitoring, failure detection, and debug commands differ between these two types — always confirm the build type before running any log commands.
+
+**How to confirm which type you have (from the grdlbuild target):**
+```bash
+# ZSE5 targets contain "sle" and end with "_zse":
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb        # → zebu_zebu/
+
+# FPGA targets contain "fpga" and end with "_vcs":
+grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb  # → fpgasim_emuvcs/
+```
+
+---
+
 ## Key Files and Paths
 
 ### grdlbuild Log
@@ -22,10 +44,12 @@ Contains timestamped entries for each task start/finish with exit codes and runt
 
 ### VCS Build Output Directory
 ```
-# Standard (ZeBu) builds:
-$WORKAREA/output/$DUT/emu/emuvcs_emuvcs/$MODEL/vcs/
-# FPGA VCS builds (BUILD_DIRNAME=fpgasim):
+# FPGA slimsim builds (BUILD_DIRNAME=fpgasim) — used in TTLbx SLE builds:
 $WORKAREA/output/$DUT/emu/fpgasim_emuvcs/$MODEL/vcs/
+# Older VCS-only (non-FPGA) builds — NOT ZeBu, NOT used in current TTLbx SLE:
+$WORKAREA/output/$DUT/emu/emuvcs_emuvcs/$MODEL/vcs/
+# ZeBu (ZSE5) builds — completely separate orchestrator, different output tree:
+$WORKAREA/output/$DUT/emu/zebu_zebu/$MODEL/zse5/
 ```
 Subdirectories: `analysis/`, `elab/`, `transactors/`, `log/`
 
@@ -490,3 +514,76 @@ Key implementation notes:
 - Include WORKAREA stem AND MODEL in every email subject — user runs multiple parallel builds
 - Email address: always use `hoa.nguyen@intel.com` — do NOT derive from `whoami`
 - **CRITICAL — Backend FPGA P&R false positives**: `backend_default_U*_M*_F*_L* abnormal task termination` is **NOT a build failure**. The only definitive failure signal is `"Compilation Ended abnormally"` in zCui.log.
+
+---
+
+## ZeBu vs FPGA VCS: Side-by-Side Comparison
+
+Use this section whenever you need to branch on build type — different logs, different failure signals, different monitoring tools.
+
+| Dimension | ZeBu / ZSE5 | FPGA slimsim (VCS) |
+|-----------|------------|---------------------|
+| **grdlbuild target** | `emu:sle:..._zse` | `emu:fpga:..._vcs` |
+| **Output root** | `output/$DUT/emu/zebu_zebu/$MODEL/zse5/` | `output/$DUT/emu/fpgasim_emuvcs/$MODEL/vcs/` |
+| **Primary orchestrator** | zCui (Cadence ZeBu) | VCS (make + distcomp) |
+| **Build duration** | ~25-50 hrs total | ~2-5 hrs |
+| **driverClk check** | YES — mandatory mid-build (`zTime.log`) | NO — not applicable |
+| **Mid-build monitor** | `monitor_build.sh` → `/tmp/monitor_<WS>_<MODEL>.log` | `fpga_vcs_build_monitor.sh` → `output/.fpga_vcs_build_monitor.out` |
+| **Progress log** | `zcui.work/zCui.log` | `emu_gen.log` → `analyze_summary.log` → `elab.log` |
+| **Failure signal** | `"Compilation Ended abnormally"` in zCui.log | `Error-[` in `analysis/dpc_log/` or `elab/dpc_log/` |
+| **Phase detection** | zCui stages: VCS_Task_Builder → Synthesis Bundles → zTopBuild → zPar → zTime → FPGA → zTimeFpga | VCS stages: emu_gen → analysis → elaboration |
+| **False positive risk** | Backend P&R strategy failures (`abnormal task termination`) — ignore unless `Compilation Ended abnormally` | None — VCS `Error-[` is definitive |
+| **Post-build verification** | 6 pass checks: shadow files, U0-U3 dirs, MuDb, ldd, readmem.dump, failure_info.log | Check elab exit code and `elab.log` for errors |
+| **Fix → relaunch flag** | `-nb -id` (skip completed ZSE5 stages) | `-nb -id` (skip completed VCS stages) |
+
+### Which logs to check first (by build type)
+
+**ZeBu (ZSE5):**
+```bash
+# 1. Overall grdlbuild progress (pre-zCui)
+cat $WORKAREA/output/grdlbuild/logs/ttlbx_n2p.emu.sle.*_zse.log | grep "Target:\|PASSED\|FAILED"
+
+# 2. zCui orchestrator status
+grep -E "stage|Bundle|FAILED|PASSED|Compilation Ended" $ZSE5_OUT/zcui.work/zCui.log | tail -10
+
+# 3. driverClk (once zTime stage appears)
+grep -E "driverClk|kHz" $ZSE5_OUT/zcui.work/zebu.work/zTime.log | head -5
+```
+
+**FPGA VCS:**
+```bash
+# 1. Pre-compilation actions
+grep "EXECUTING ACTION\|PASSED\|FAILED" $FPGA_OUT/log/emu_gen.log | tail -20
+
+# 2. VCS analysis errors
+grep -r "Error-\|error:" $FPGA_OUT/analysis/dpc_log/ | head -20
+
+# 3. VCS elaboration errors
+grep -r "Error-\|error:" $FPGA_OUT/elab/dpc_log/ | head -20
+```
+
+### Failure triage decision tree (by build type)
+
+```
+Build failed — which type?
+│
+├── ZSE5 (_zse target, zebu_zebu/ output)
+│   ├── Failed before zCui started?
+│   │   └── Check gradle task log: ...emu.sle.*_zse.log for FAILED
+│   ├── Failed during synthesis?
+│   │   └── grep "abnormal" zCui.log → read bundle failure log
+│   ├── driverClk < 200 kHz?
+│   │   └── Read sle-build-zebu-driverclock-debug.md immediately
+│   └── "Compilation Ended abnormally" in zCui.log?
+│       └── Check zCui.log + zTopBuild.log for root cause
+│
+└── FPGA VCS (_vcs target, fpgasim_emuvcs/ output)
+    ├── Failed in emu_gen phase?
+    │   └── grep "FAILED" emu_gen.log → find the failing action
+    ├── Failed in analysis?
+    │   └── grep "Error-[" analysis/dpc_log/*.log
+    ├── Failed in elaboration?
+    │   └── grep "Error-[" elab/dpc_log/*.log
+    └── rtlchanges issue?
+        └── Check rtlchanges_precheck.log or rtlchanges_postcheck.log
+```
