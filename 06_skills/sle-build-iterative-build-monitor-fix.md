@@ -762,117 +762,186 @@ cat $BUILD/zse5/zcui.work/zCui/log/zCui.log | grep "Compilation Ended"
 
 ### ZeBu Step 3: Deploy Background Monitor Script
 
-Since ZeBu builds run 12-24+ hours and the AI agent is not active between conversation turns, deploy a **bash background monitor script** that polls every 5 minutes and sends emails on key events.
+Since ZeBu builds run 12-24+ hours and the AI agent is not active between conversation turns, deploy a **bash background monitor script** that polls every 60 seconds (pre-zCui) / 5 minutes (zCui) and sends emails on key events.
 
 The monitor script serves **two purposes**:
 1. **Email alerts** (autonomous): Sends email on failure, completion, slow driverClk, HFA001 warnings
-2. **Status log** (`monitor_build.out`): Provides a timestamped build timeline that the agent reads with a single foreground command for periodic status checks
+2. **Monitor log** (`/tmp/monitor_<workarea>_<model>.log`): Timestamped build timeline the agent reads for periodic status checks
 
 **Recommended monitoring workflow:**
-1. Deploy `monitor_build.sh` immediately after build launch (or after zse5/ is created)
-2. When user asks for status (or for periodic checks), use `read_file` to check logs directly:
-   - First: `read_file` on `compilation_status.log` — identifies which subtask is running
-   - Then: `read_file` on the running subtask's log (see subtask-to-log table above)
-   - Also: `read_file` on `monitor_build.out` for the full timestamped history
-3. For a quick overview, `read_file` on `zCui.log` (last 30-50 lines) shows recent task completions
-4. **Do NOT use terminal commands** for log reads — NFS stalls. Only use terminal for >50MB files with targeted `grep`.
-3. This single command shows monitor health + complete build progress — no need to parse multiple logs
-4. **Do NOT spawn background terminals** for status checks — they accumulate and clutter the terminal list
+1. Deploy the monitor script **immediately after build launch** (before any log dirs are created)
+2. When user asks for status, read the monitor log directly:
+   - `cat /tmp/monitor_<WORKAREA_STEM>_<MODEL>.log | tail -30`
+   - Also check `compilation_status.log` or `zCui.log` directly for zCui phase detail
+3. **Do NOT spawn background terminals** for status checks — they accumulate and clutter the terminal list
 
-**Script template** (save to `$BUILD/zse5/monitor_build.sh`):
+> ⚠️ **CRITICAL — Multiple parallel builds**: The user may run multiple builds in different workareas simultaneously. Always:
+> - **Hardcode WORKAREA and MODEL** inside the script at deployment — never inherit from the shell environment
+> - **Use a unique monitor log file** per WORKAREA+MODEL in `/tmp` so monitors don't collide
+> - **Include both WORKAREA stem and MODEL in every email subject** so the user can identify which build sent the alert
+
+**Script template** — fill in WORKAREA, MODEL, DUT at deployment time, save to `/tmp/monitor_<WORKAREA_STEM>_<MODEL>.sh`:
 ```bash
 #!/bin/bash
-BUILD="<full path to model build dir>"
-WORKAREA="<full WORKAREA path>"
-ZCUI_LOG="$BUILD/zse5/zcui.work/zCui/log/zCui.log"
-STATUS_LOG="$BUILD/zse5/zcui.work/compilation_status.log"
-ZTIME_LOG="$BUILD/zse5/zcui.work/zebu.work/zTime.log"
-ZTIME_FPGA_LOG="$BUILD/zse5/zcui.work/backend_default/zTime_fpga.log"
-ZTOPBUILD_LOG="$BUILD/zse5/zcui.work/zebu.work/zTopBuild.log"
+# Hardcode all paths at deployment time — never inherit from shell environment
+WORKAREA="<full WORKAREA path including any .1/.2 suffix>"  # e.g. /nfs/.../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+MODEL="<model name>"                                          # e.g. pkg_chpr_p2e4_816_fast
+DUT="<DUT name>"                                             # e.g. ttlbx_n2p
+BUILD="$WORKAREA/output/$DUT/emu/zebu_zebu/$MODEL"           # path to model build dir (without /zse5)
 USER_EMAIL="hoa.nguyen@intel.com"
-POLL_INTERVAL=300  # 5 minutes
-LOG="$BUILD/zse5/monitor_build.log"
 
-send_email() {
-    local subject="$1"
-    local body="$2"
-    echo -e "$body" | /bin/mail -s "$subject" "$USER_EMAIL"
-}
+WORKAREA_STEM=$(basename "$WORKAREA")
+MONITOR_LOG="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.log"     # unique per WORKAREA+MODEL
+
+log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$MONITOR_LOG"; }
+send_email() { echo -e "$2" | /bin/mail -s "$1" "$USER_EMAIL"; }
+
+log "=== Monitor started: $MODEL in $WORKAREA ==="
+log "BUILD=$BUILD/zse5"
+
+# ── STARTUP BASELINE ──────────────────────────────────────────────────────────
+# Record the newest log subdir that exists RIGHT NOW. Any failure_info.log in
+# this dir or older dirs is stale (from a prior build run) and must be ignored.
+# Only failure_info.log files in NEW log subdirs (created after this point)
+# signal a real failure in the current build.
+STARTUP_LOG_DIR=$(ls -t "$BUILD/zse5/log/" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
+CURRENT_LOG_DIR="$STARTUP_LOG_DIR"
+[ -n "$STARTUP_LOG_DIR" ] && log "Baseline log dir at startup: $STARTUP_LOG_DIR (stale — failures here will be ignored)"
+
+ANALYZE_REPORTED=0
+DRVCLK_REPORTED=0
+HFA_REPORTED=0
 
 while true; do
-    TIMESTAMP=$(date "+[%a %d %b %Y %I:%M:%S %p %Z]")
 
-    # Check for build failure
-    if cat "$ZCUI_LOG" 2>/dev/null | grep -q "abnormal task termination\|Compilation Ended abnormally"; then
-        FAILED_TASKS=$(cat "$ZCUI_LOG" | grep -A5 "List of failed tasks")
-        echo "$TIMESTAMP BUILD FAILED" >> "$LOG"
-        send_email "[ZeBu FAIL] $WORKAREA" "Build failed.\nWORKAREA: $WORKAREA\n\nFailed tasks:\n$FAILED_TASKS"
-        echo "$TIMESTAMP BUILD FAILED - email sent" >> "$LOG"
-        exit 0
+    # ── PRE-ZCUI MONITORING ─────────────────────────────────────────────────
+    # Detect new log subdir — signals start of a new pre_analyze/analyze run
+    LATEST_LOG_DIR=$(ls -t "$BUILD/zse5/log/" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
+    if [ -n "$LATEST_LOG_DIR" ] && [ "$LATEST_LOG_DIR" != "$CURRENT_LOG_DIR" ]; then
+        log "📁 New build run started: $LATEST_LOG_DIR"
+        CURRENT_LOG_DIR="$LATEST_LOG_DIR"
+        ANALYZE_REPORTED=0
     fi
 
-    # Check for build success
-    if cat "$ZCUI_LOG" 2>/dev/null | grep -q "Compilation Ended successfully"; then
-        echo "$TIMESTAMP BUILD PASSED" >> "$LOG"
-        # Check driverClk from zTime_fpga.log
-        DRIVCLK=$(cat "$ZTIME_FPGA_LOG" 2>/dev/null | grep "driverClk" | head -1)
-        send_email "[ZeBu PASS] $WORKAREA" "Build completed successfully.\nWORKAREA: $WORKAREA\n\ndriverClk: $DRIVCLK"
-        echo "$TIMESTAMP BUILD PASSED - email sent" >> "$LOG"
-        exit 0
-    fi
+    # Check failure_info.log ONLY in the current run's log dir (never in STARTUP_LOG_DIR)
+    if [ -n "$CURRENT_LOG_DIR" ] && [ "$CURRENT_LOG_DIR" != "$STARTUP_LOG_DIR" ]; then
+        FAIL_FILE="$BUILD/zse5/log/$CURRENT_LOG_DIR/failure_info.log"
+        if [ -f "$FAIL_FILE" ]; then
+            log "❌ PRE-ZCUI FAILURE in $CURRENT_LOG_DIR:"
+            head -60 "$FAIL_FILE" | while IFS= read -r line; do log "  $line"; done
+            send_email "[ZeBu FAIL pre-zCui] $MODEL ($WORKAREA_STEM)" \
+                "Pre-zCui failure in $CURRENT_LOG_DIR.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(head -60 $FAIL_FILE)"
+            log "Monitor stopping — fix the failure and relaunch the build."
+            exit 1
+        fi
 
-    # Check for VCS_Task_Builder completion (0 errors expected)
-    if cat "$ZCUI_LOG" 2>/dev/null | grep -q "VCS_Task_Builder normal task termination"; then
-        VCS_ERRORS=$(cat "$BUILD/zse5/zcui.work/zCui/log/vcs_splitter_VCS_Task_Builder.log" 2>/dev/null | grep -c 'Error-')
-        if [ "$VCS_ERRORS" -gt 0 ]; then
-            echo "$TIMESTAMP VCS_Task_Builder completed with $VCS_ERRORS errors" >> "$LOG"
+        # Detect analyze PASSED (all libs passed, none failed)
+        if [ "$ANALYZE_REPORTED" = "0" ]; then
+            SUMLOG="$BUILD/zse5/log/$CURRENT_LOG_DIR/analyze_summary.log"
+            if [ -f "$SUMLOG" ]; then
+                PASSED=$(grep -c "PASSED" "$SUMLOG" 2>/dev/null || echo 0)
+                FAILED=$(grep -c "FAILED" "$SUMLOG" 2>/dev/null || echo 0)
+                if [ "$PASSED" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
+                    log "✅ analyze PASSED ($PASSED libs)"
+                    ANALYZE_REPORTED=1
+                fi
+            fi
         fi
     fi
 
-    # Check for zTopBuild completion — verify force assigns
-    if cat "$ZCUI_LOG" 2>/dev/null | grep -q "zTopBuild normal task termination"; then
-        HFA_COUNT=$(cat "$ZTOPBUILD_LOG" 2>/dev/null | grep -c "HFA001")
-        if [ "$HFA_COUNT" -gt 0 ]; then
-            HFA_DETAILS=$(cat "$ZTOPBUILD_LOG" 2>/dev/null | grep "HFA001")
-            echo "$TIMESTAMP WARNING: $HFA_COUNT HFA001 warnings (dead force assigns)" >> "$LOG"
-            send_email "[ZeBu WARN] HFA001 - $WORKAREA" "Force assign(s) did not match.\nWORKAREA: $WORKAREA\n\n$HFA_DETAILS"
+    # ── ZCUI MONITORING (once zcui.work/ appears) ───────────────────────────
+    ZCUI_LOG="$BUILD/zse5/zcui.work/zCui/log/zCui.log"
+    STATUS_LOG="$BUILD/zse5/zcui.work/compilation_status.log"
+    ZTIME_LOG="$BUILD/zse5/zcui.work/zebu.work/zTime.log"
+    ZTIME_FPGA_LOG="$BUILD/zse5/zcui.work/backend_default/zTime_fpga.log"
+    ZTOPBUILD_LOG="$BUILD/zse5/zcui.work/zebu.work/zTopBuild.log"
+
+    if [ -f "$ZCUI_LOG" ]; then
+        # Definitive failure signal — excludes backend P&R strategy failures (see note below)
+        if cat "$ZCUI_LOG" 2>/dev/null | grep -q "Compilation Ended abnormally"; then
+            FAILED=$(cat "$ZCUI_LOG" | grep -A5 "List of failed tasks")
+            log "❌ ZCUI BUILD FAILED"
+            send_email "[ZeBu FAIL] $MODEL ($WORKAREA_STEM)" \
+                "Build FAILED.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$FAILED"
+            exit 1
         fi
+
+        # Success
+        if cat "$ZCUI_LOG" 2>/dev/null | grep -q "Compilation Ended successfully"; then
+            DRVCLK=$(cat "$ZTIME_FPGA_LOG" 2>/dev/null | grep "driverClk" | head -1)
+            log "✅ BUILD PASSED. driverClk: $DRVCLK"
+            send_email "[ZeBu PASS] $MODEL ($WORKAREA_STEM)" \
+                "Build PASSED.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\ndriverClk: $DRVCLK"
+            exit 0
+        fi
+
+        # driverClk alert (once, when zTime.log appears)
+        if [ "$DRVCLK_REPORTED" = "0" ] && [ -f "$ZTIME_LOG" ]; then
+            KHZ=$(cat "$ZTIME_LOG" 2>/dev/null | grep "driverClk" | grep -oP '\d+\s*kHz' | head -1 | grep -oP '\d+')
+            if [ -n "$KHZ" ]; then
+                log "🕐 driverClk: ${KHZ} kHz"
+                if [ "$KHZ" -lt 200 ]; then
+                    send_email "[ZeBu SLOW] driverClk ${KHZ} kHz - $MODEL ($WORKAREA_STEM)" \
+                        "driverClk is ${KHZ} kHz (below 200 kHz threshold).\nWORKAREA: $WORKAREA\nMODEL: $MODEL"
+                fi
+                DRVCLK_REPORTED=1
+            fi
+        fi
+
+        # HFA001 force assign mismatches (once, after zTopBuild completes)
+        if [ "$HFA_REPORTED" = "0" ] && cat "$ZCUI_LOG" 2>/dev/null | grep -q "zTopBuild normal task termination"; then
+            HFA=$(cat "$ZTOPBUILD_LOG" 2>/dev/null | grep -c "HFA001" || echo 0)
+            if [ "$HFA" -gt 0 ]; then
+                log "⚠️ $HFA HFA001 force assign mismatch(es)"
+                send_email "[ZeBu WARN] HFA001 - $MODEL ($WORKAREA_STEM)" \
+                    "$HFA force assign(s) did not match.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(cat $ZTOPBUILD_LOG | grep HFA001)"
+            fi
+            HFA_REPORTED=1
+        fi
+
+        # Log zCui status
+        STATUS=$(cat "$STATUS_LOG" 2>/dev/null | grep "Running" | head -3)
+        log "zCui: ${STATUS:-waiting...}"
+        sleep 300  # 5 min during zCui synthesis
+    else
+        sleep 60   # 1 min pre-zCui (failures happen fast here)
     fi
 
-    # Check for zTime completion — driverClk speed
-    if [ -f "$ZTIME_LOG" ]; then
-        DRIVCLK_KHZ=$(cat "$ZTIME_LOG" 2>/dev/null | grep "driverClk" | grep -oP '\d+\s*kHz' | head -1 | grep -oP '\d+')
-        if [ -n "$DRIVCLK_KHZ" ] && [ "$DRIVCLK_KHZ" -lt 200 ]; then
-            echo "$TIMESTAMP driverClk is slow: ${DRIVCLK_KHZ} kHz" >> "$LOG"
-            send_email "[ZeBu SLOW] driverClk ${DRIVCLK_KHZ} kHz - $WORKAREA" "driverClk is ${DRIVCLK_KHZ} kHz (below 200 kHz threshold).\nWORKAREA: $WORKAREA\n\nInvestigate with sle-build-zebu-driverclock-debug skill."
-        fi
-    fi
-
-    # Log current status
-    CURRENT=$(cat "$STATUS_LOG" 2>/dev/null | grep "Running")
-    echo "$TIMESTAMP $CURRENT" >> "$LOG"
-
-    sleep $POLL_INTERVAL
 done
 ```
 
-**Launch the monitor:**
+**Deploy the monitor** (fill in WORKAREA_STEM and MODEL with actual values):
 ```bash
-bash -c 'nohup bash $BUILD/zse5/monitor_build.sh > /dev/null 2>&1 & echo "Monitor PID: $!"'
+WORKAREA_STEM=$(basename "<WORKAREA>")   # e.g. pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+MODEL="<model>"                          # e.g. pkg_chpr_p2e4_816_fast
+SCRIPT="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.sh"
+# ... write script to $SCRIPT with cat > $SCRIPT << 'EOF' ... EOF ...
+nohup bash "$SCRIPT" >> "/tmp/monitor_${WORKAREA_STEM}_${MODEL}.log" 2>&1 &
+echo "Monitor PID: $!  (log: /tmp/monitor_${WORKAREA_STEM}_${MODEL}.log)"
+```
+
+**Read monitor status:**
+```bash
+WORKAREA_STEM=$(basename "<WORKAREA>")
+MODEL="<model>"
+tail -30 /tmp/monitor_${WORKAREA_STEM}_${MODEL}.log
 ```
 
 **Implementation notes:**
 - Use `bash` — tcsh cannot handle `$()`, `[[ ]]`, or reliable redirect syntax
 - Use `cat file | grep` instead of `grep file` to avoid NFS hangs
-- Check for `"zTopBuild normal task termination"` (exact string) — do NOT also match `"zTopBuildResultAnalyzer"` which appears much earlier
+- **WORKAREA must be hardcoded inside the script** — if the user has parallel builds, each monitor needs its own hardcoded WORKAREA so they don't interfere. Never use `$WORKAREA` from the shell environment.
+- **Monitor log is in `/tmp`** with WORKAREA+MODEL in the filename — unique per build, survives zse5/ not existing yet at deploy time
+- **Do NOT use `pgrep`** — it is prohibited in this shell environment. Use file-based signals only (log dirs, failure_info.log, zCui.log keywords).
+- **STARTUP_LOG_DIR baseline is essential**: without it, the monitor will immediately see `failure_info.log` from a prior failed run and exit as a false positive. Always capture the baseline at script start.
+- Check for `"zTopBuild normal task termination"` (exact string) — do NOT match `"zTopBuildResultAnalyzer"` which appears much earlier
 - Email address: always use `hoa.nguyen@intel.com` — do NOT derive from `whoami`
-- Include WORKAREA in email subject — user runs multiple parallel builds
-- **CRITICAL — Do NOT treat backend FPGA P&R failures as build failures**: `backend_default_U*_M*_F*_L* abnormal task termination` means one FPGA place-and-route strategy failed, but other strategies may succeed. Each FPGA unit runs multiple P&R strategies in parallel — the build only fails if ALL strategies for a unit fail. The failure detection logic must exclude these:
+- Include WORKAREA stem AND MODEL in every email subject — user runs multiple parallel builds
+- **CRITICAL — Do NOT treat backend FPGA P&R failures as build failures**: `backend_default_U*_M*_F*_L* abnormal task termination` means one FPGA place-and-route strategy failed, but other strategies may succeed. The only definitive failure signal is `"Compilation Ended abnormally"` in zCui.log:
   ```bash
   # WRONG — false positive on backend strategy failures:
   grep -q "abnormal task termination" zCui.log
-  # CORRECT — only match non-backend failures, or use definitive signal:
-  grep "abnormal task termination" zCui.log | grep -qv "backend_default_U"
+  # CORRECT — use definitive signal only:
   grep -q "Compilation Ended abnormally" zCui.log
   ```
 

@@ -455,47 +455,38 @@ Typical PnR: ~4000-5000 jobs spawned (multiple strategies per FPGA unit), comple
 **IMPORTANT**: `compilation_status.log` may not exist during the PnR phase (it's created at a later stage). Use `zCui.log` directly for progress tracking during backend.
 
 ### ZeBu Background Monitor Script
-For long-running ZeBu builds, deploy a background monitor script that polls `compilation_status.log` and `zCui.log` every 5 minutes. The script should:
-1. Track pre-zCui stage progress (gradle task log: PASSED/FAILED counts, analyze progress)
-2. Detect pre-zCui failures (Exit status != 0 in task log) and email immediately
-3. Transition to zCui monitoring once `zCui.log` appears
-4. Detect zCui task failures (`abnormal task termination` or `FATAL` in zCui.log)
+For long-running ZeBu builds, deploy a background monitor script per the template in `sle-build-iterative-build-monitor-fix.md` (ZeBu Step 3). The script covers two phases:
+
+**Pre-zCui monitoring** (poll every 60 sec):
+1. Detect new `log/<TIMESTAMP>/` subdirs — signals a new build run started
+2. Check `failure_info.log` in the **current run's log dir only** — never in the baseline dir that existed at script start (that is stale from a prior run)
+3. Track `analyze_summary.log` for PASSED/FAILED counts
+
+**zCui monitoring** (poll every 5 min, once `zcui.work/` appears):
+4. Detect `"Compilation Ended abnormally"` in zCui.log (the only definitive failure signal)
 5. After zTopBuild completes, check for HFA001 force assign mismatches
-6. After zTime completes, parse driverClk and alert if < 200 kHz
-7. On completion or failure, send email with WORKAREA and build summary
-8. Log all poll results to `$BUILD/zse5/monitor_build.out`
+6. After zTime appears, parse driverClk and alert if < 200 kHz
+7. On completion or failure, send email with WORKAREA, MODEL, and build summary
 
 ### Two-Layer Monitoring Pattern (Recommended)
 
-Use **both** layers for reliable monitoring:
-
-**Layer 1: Background monitor script** (`monitor_build.sh`)
-- Runs autonomously via `nohup`, survives terminal/conversation disconnects
-- Sends email on failure, completion, slow driverClk, HFA001 warnings
-- Logs all status polls to `$BUILD/zse5/monitor_build.out`
+**Layer 1: Background monitor script**
+- Runs via `nohup`, survives terminal/conversation disconnects
+- Log file: `/tmp/monitor_<WORKAREA_STEM>_<MODEL>.log` — unique per build, even for parallel builds
+- See `sle-build-iterative-build-monitor-fix.md` for the full script template and deployment command
 
 **Layer 2: Periodic foreground status check**
-- When the user asks for status (or periodically during active conversation), run a single command:
-```bash
-ps -p <MONITOR_PID> -o pid,etime,args | head -3 ; echo "---" ; cat $BUILD/zse5/monitor_build.out
-```
-- This shows: monitor health (PID, uptime) + complete build progress history
-- The `monitor_build.out` file is the **single source of truth** — it contains timestamped entries for every pre-zCui stage, every zCui phase transition, and any errors
-- This pattern avoids spawning new background terminals for status checks
-- **Do NOT spawn background terminals for one-off status checks** — they accumulate and clutter the terminal list
-
-**Key advantages of this pattern:**
-- No need to parse multiple log files manually — the monitor script already does it
-- Consistent, timestamped output that's easy to read at a glance
-- Works across conversation turns (the background script persists)
-- Single foreground command = no terminal proliferation
+- When user asks for status: `tail -30 /tmp/monitor_<WORKAREA_STEM>_<MODEL>.log`
+- Also check logs directly when needed: `compilation_status.log`, `zCui.log`, `analyze_summary.log`
+- **Do NOT spawn background terminals for one-off status checks** — accumulate and clutter
 
 Key implementation notes:
-- Use `bash` (not tcsh) for the monitor script — tcsh lacks `$()`, `[[ ]]`, and heredocs
-- Use `cat file | tail` instead of `tail file` to avoid NFS hangs (terminal-only; prefer `read_file` tool when possible)
-- Use `cat file | grep` instead of `grep file` for same reason (terminal-only; prefer `read_file` tool when possible)
-- **Agent log monitoring**: Always use `read_file` tool for checking `compilation_status.log`, `zCui.log`, `zTopBuild.log`, `zTime.log`, and other logs < 50MB. Only use terminal for VCS_Task_Builder.log (> 50MB) with targeted `grep`.
-- Include WORKAREA in all email subjects (user may have multiple parallel builds)
-- Use `/bin/mail -s "subject" email_address` for sending email (pipe body via stdin)
+- Use `bash` (not tcsh) — tcsh lacks `$()`, `[[ ]]`, and heredocs
+- Use `cat file | grep` instead of `grep file` to avoid NFS hangs
+- **WORKAREA and MODEL must be hardcoded inside the script** at deployment — never inherit from shell env. User may have multiple parallel builds in different workareas; each monitor must be explicitly bound to one.
+- **Do NOT use `pgrep`** — it is prohibited in this shell environment. Use file-based signals only.
+- **STARTUP_LOG_DIR baseline is mandatory**: capture the newest existing log subdir at startup. Only report failures from NEW log subdirs created after startup — otherwise the monitor sees stale `failure_info.log` from prior runs and immediately exits with a false positive.
+- Monitor log goes to `/tmp` with WORKAREA+MODEL in the filename — parallel builds get separate logs
+- Include WORKAREA stem AND MODEL in every email subject — user runs multiple parallel builds
 - Email address: always use `hoa.nguyen@intel.com` — do NOT derive from `whoami`
-- **CRITICAL — Backend FPGA P&R false positives**: `backend_default_U*_M*_F*_L* abnormal task termination` is **NOT a build failure**. These are individual FPGA place-and-route strategy failures — each FPGA unit has multiple strategies, and the build succeeds as long as at least one strategy per unit passes. The monitor's failure detection must exclude these: `grep "abnormal task termination" | grep -v "backend_default_U"`. The only definitive failure signal is `"Compilation Ended abnormally"` in zCui.log.
+- **CRITICAL — Backend FPGA P&R false positives**: `backend_default_U*_M*_F*_L* abnormal task termination` is **NOT a build failure**. The only definitive failure signal is `"Compilation Ended abnormally"` in zCui.log.
