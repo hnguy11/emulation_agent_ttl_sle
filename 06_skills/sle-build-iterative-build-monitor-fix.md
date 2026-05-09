@@ -912,20 +912,33 @@ cat $BUILD/zse5/zcui.work/zCui/log/zCui.log | grep "Compilation Ended"
 
 Since ZeBu builds run 12-24+ hours and the AI agent is not active between conversation turns, deploy a **bash background monitor script** that polls every 60 seconds (pre-zCui) / 5 minutes (zCui) and sends emails on key events.
 
-The monitor script serves **two purposes**:
+The monitor script serves **three purposes**:
 1. **Email alerts** (autonomous): Sends email on failure, completion, slow driverClk, HFA001 warnings
 2. **Monitor log** (`/tmp/monitor_<workarea>_<model>.log`): Timestamped build timeline the agent reads for periodic status checks
+3. **Status file** (`/tmp/monitor_<workarea>_<model>.status`): Persistent 3-line file written on every exit (RUNNING/FAILED/PASSED + timestamp + detail). Survives after monitor dies — agent ALWAYS checks this first.
 
 **Recommended monitoring workflow:**
 1. Deploy the monitor script **immediately after build launch** (before any log dirs are created)
-2. When user asks for status, read the monitor log directly:
-   - `cat /tmp/monitor_<WORKAREA_STEM>_<MODEL>.log | tail -30`
-   - Also check `compilation_status.log` or `zCui.log` directly for zCui phase detail
-3. **Do NOT spawn background terminals** for status checks — they accumulate and clutter the terminal list
+2. **FIRST CHECK — status file** (valid even if monitor is dead):
+   ```bash
+   cat /tmp/monitor_<WORKAREA_STEM>_<MODEL>.status
+   ```
+   - If `FAILED` or `PASSED` → the build has ended; read the detail line and investigate
+   - If `RUNNING` → monitor is alive or was alive recently; check PID and log tail
+3. **SECOND CHECK — monitor PID** (is it still running?):
+   ```bash
+   ps -p <PID> -o pid,stat
+   ```
+   - If dead AND status is still `RUNNING` → monitor crashed unexpectedly; check log tail
+4. **THIRD CHECK — monitor log tail** for recent events:
+   ```bash
+   tail -20 /tmp/monitor_<WORKAREA_STEM>_<MODEL>.log
+   ```
+5. **Do NOT spawn background terminals** for status checks — they accumulate and clutter the terminal list
 
 > ⚠️ **CRITICAL — Multiple parallel builds**: The user may run multiple builds in different workareas simultaneously. Always:
 > - **Hardcode WORKAREA and MODEL** inside the script at deployment — never inherit from the shell environment
-> - **Use a unique monitor log file** per WORKAREA+MODEL in `/tmp` so monitors don't collide
+> - **Use a unique monitor log/status file** per WORKAREA+MODEL in `/tmp` so monitors don't collide
 > - **Include both WORKAREA stem and MODEL in every email subject** so the user can identify which build sent the alert
 
 **Script template** — fill in WORKAREA, MODEL, DUT at deployment time, save to `/tmp/monitor_<WORKAREA_STEM>_<MODEL>.sh`:
@@ -940,14 +953,26 @@ USER_EMAIL="hoa.nguyen@intel.com"
 
 WORKAREA_STEM=$(basename "$WORKAREA")
 MONITOR_LOG="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.log"     # unique per WORKAREA+MODEL
+# STATUS_FILE persists after the monitor exits — agent always checks this first.
+# States: RUNNING | FAILED | PASSED
+# Format: line1=state, line2=timestamp, line3=detail
+STATUS_FILE="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.status"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$MONITOR_LOG"; }
 send_email() { echo -e "$2" | /bin/mail -s "$1" "$USER_EMAIL"; }
+# write_status: call before every exit so the agent knows the outcome even when monitor is dead
+write_status() {
+    local state="$1"
+    local detail="$2"
+    printf "%s\n%s\n%s\n" "$state" "$(date '+%Y-%m-%d %H:%M:%S')" "$detail" > "$STATUS_FILE"
+    log "STATUS -> $STATUS_FILE: $state"
+}
 
 LOGDIR="$BUILD/zse5/log"
 
 log "=== Monitor started: $MODEL in $WORKAREA ==="
 log "BUILD=$BUILD/zse5"
+write_status "RUNNING" "Monitor started"
 
 # ── STARTUP BASELINE: stale failure_info.log at root ─────────────────────────
 # DVB's make_execute.py symlinks $LOGDIR/failure_info.log → the most recent NB
@@ -1024,6 +1049,7 @@ while true; do
             while IFS= read -r line; do log "  $line"; done < <(head -60 "$LOGDIR/failure_info.log")
             send_email "[ZeBu FAIL pre-zCui] $MODEL ($WORKAREA_STEM)" \
                 "DVB NB stage failure.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(head -60 $LOGDIR/failure_info.log)"
+            write_status "FAILED" "DVB NB stage failure — see $LOGDIR/failure_info.log"
             log "Monitor stopping — fix the failure and relaunch the build."
             exit 1
         fi
@@ -1046,6 +1072,7 @@ while true; do
             while IFS= read -r line; do log "  $line"; done <<< "$ERRORS"
             send_email "[ZeBu FAIL $stage] $MODEL ($WORKAREA_STEM)" \
                 "$stage failed.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$ERRORS"
+            write_status "FAILED" "$stage failed — see $STAGELOG"
             log "Monitor stopping — fix and relaunch."
             exit 1
         fi
@@ -1095,6 +1122,7 @@ while true; do
             log "❌ ZCUI BUILD FAILED"
             send_email "[ZeBu FAIL] $MODEL ($WORKAREA_STEM)" \
                 "Build FAILED.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$FAILED"
+            write_status "FAILED" "zCui Compilation Ended abnormally — see $ZCUI_LOG"
             exit 1
         fi
 
@@ -1104,6 +1132,7 @@ while true; do
             log "✅ BUILD PASSED. driverClk: $DRVCLK"
             send_email "[ZeBu PASS] $MODEL ($WORKAREA_STEM)" \
                 "Build PASSED.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\ndriverClk: $DRVCLK"
+            write_status "PASSED" "Build succeeded. driverClk: $DRVCLK"
             exit 0
         fi
 
