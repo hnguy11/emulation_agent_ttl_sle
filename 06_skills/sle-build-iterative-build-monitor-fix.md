@@ -839,8 +839,14 @@ while true; do
         if [ "$ANALYZE_REPORTED" = "0" ]; then
             SUMLOG="$BUILD/zse5/log/$CURRENT_LOG_DIR/analyze_summary.log"
             if [ -f "$SUMLOG" ]; then
-                PASSED=$(grep -c "PASSED" "$SUMLOG" 2>/dev/null || echo 0)
-                FAILED=$(grep -c "FAILED" "$SUMLOG" 2>/dev/null || echo 0)
+                # IMPORTANT: Do NOT use "|| echo 0" with grep -c.
+                # grep -c exits with 1 on no match but still outputs "0" to stdout,
+                # so "|| echo 0" produces "0\n0" which is NOT a valid integer.
+                # Use ${VAR:-0} fallback instead, which is safe for empty/unset.
+                PASSED=$(grep -c "PASSED" "$SUMLOG" 2>/dev/null)
+                FAILED=$(grep -c "FAILED" "$SUMLOG" 2>/dev/null)
+                PASSED=${PASSED:-0}
+                FAILED=${FAILED:-0}
                 if [ "$PASSED" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
                     log "✅ analyze PASSED ($PASSED libs)"
                     ANALYZE_REPORTED=1
@@ -890,7 +896,9 @@ while true; do
 
         # HFA001 force assign mismatches (once, after zTopBuild completes)
         if [ "$HFA_REPORTED" = "0" ] && cat "$ZCUI_LOG" 2>/dev/null | grep -q "zTopBuild normal task termination"; then
-            HFA=$(cat "$ZTOPBUILD_LOG" 2>/dev/null | grep -c "HFA001" || echo 0)
+            # IMPORTANT: Do NOT use "|| echo 0" with grep -c — same integer bug as analyze check above.
+            HFA=$(grep -c "HFA001" "$ZTOPBUILD_LOG" 2>/dev/null)
+            HFA=${HFA:-0}
             if [ "$HFA" -gt 0 ]; then
                 log "⚠️ $HFA HFA001 force assign mismatch(es)"
                 send_email "[ZeBu WARN] HFA001 - $MODEL ($WORKAREA_STEM)" \
