@@ -984,6 +984,19 @@ DRVCLK_REPORTED=0
 HFA_REPORTED=0
 HEARTBEAT_COUNT=0
 
+# ── STARTUP BASELINE: zCui.log mtime ─────────────────────────────────────────
+# If a prior failed build left zCui.log with "Compilation Ended abnormally",
+# baseline its mtime so we don't false-alarm on it when the monitor restarts.
+# Only act on zCui.log content written AFTER the monitor started.
+# This is critical when relaunching with -id: the old zCui.log from the failed
+# run stays in place until fe_be (which launches zCui) runs again.
+ZCUI_INIT="$BUILD/zse5/zcui.work/zCui/log/zCui.log"
+STALE_ZCUI_MTIME=0
+if [ -f "$ZCUI_INIT" ]; then
+    STALE_ZCUI_MTIME=$(stat -c %Y "$ZCUI_INIT" 2>/dev/null || echo 0)
+    log "Baseline mtime for zCui.log: $STALE_ZCUI_MTIME (stale — prior run result ignored)"
+fi
+
 while true; do
 
     HEARTBEAT_COUNT=$((HEARTBEAT_COUNT + 1))
@@ -1068,6 +1081,14 @@ while true; do
     ZTOPBUILD_LOG="$BUILD/zse5/zcui.work/zebu.work/zTopBuild.log"
 
     if [ -f "$ZCUI_LOG" ]; then
+        ZCUI_MTIME=$(stat -c %Y "$ZCUI_LOG" 2>/dev/null || echo 0)
+        # Skip stale zCui.log from a prior run — only act on content from the current run.
+        # This is critical when relaunching with -id: the old zCui.log from the failed run
+        # remains in place until fe_be runs again and zCui overwrites it.
+        if [ "$ZCUI_MTIME" -le "${STALE_ZCUI_MTIME:-0}" ]; then
+            sleep 60
+            continue
+        fi
         # Definitive failure signal — excludes backend P&R strategy failures (see note below)
         if cat "$ZCUI_LOG" 2>/dev/null | grep -q "Compilation Ended abnormally"; then
             FAILED=$(cat "$ZCUI_LOG" | grep -A5 "List of failed tasks")
@@ -1148,6 +1169,7 @@ tail -30 /tmp/monitor_${WORKAREA_STEM}_${MODEL}.log
 - **Do NOT use `pgrep`** — it is prohibited in this shell environment. Use file-based signals only (log dirs, failure_info.log, zCui.log keywords).
 - **Root `failure_info.log` symlink** (not per-timestamp-dir tracking): DVB's `make_execute.py` symlinks `$LOGDIR/failure_info.log` → the most recent NB sub-task failure. On TTL each DVB NB sub-task (spark_co, gen_dv_flist, c_compile/dw_gen/gen_analyze_make, analyze, fe_be) gets its own timestamped dir, so there are many dirs per build. Tracking "latest timestamped dir" and checking `failure_info.log` within it is fragile — use the root symlink instead. Baseline its target at startup to avoid stale false positives.
 - **EmuGen stage failures use root log files, NOT failure_info.log**: Stages `pre_analyze`, `post_analyze`, `rtlchanges_precheck`, `rtlchanges_postcheck`, `emu_gen` are run as `buildit.py` invocations from the Makefile — not as DVB NB sub-tasks. They write to fixed `$LOGDIR/<stage>.log` paths and never create `failure_info.log`. Detect failures by watching these root log files for `RuntimeError|ERROR: CHECK FAILED|Traceback`. Use mtime baselining at startup to avoid false positives from prior runs.
+- **zCui.log must also be mtime-baselined at startup**: When relaunching with `-id` after a fe_be failure, the old `zCui.log` from the failed run remains in place until `fe_be` runs again. Without mtime baselining, the monitor will immediately see "Compilation Ended abnormally" and exit as a false positive. Capture `STALE_ZCUI_MTIME` at startup and skip any `zCui.log` whose mtime ≤ that baseline.
 - **Heartbeat logging every 5 cycles** so the user can see the monitor is alive even during long quiet phases (analyze takes ~45 min, fe_be takes ~25 hrs).
 - **Search ALL timestamped dirs for analyze_summary.log** — do NOT restrict to "current dir". The analyze NB job creates one dir, then later NB jobs create new dirs. If the monitor switches to the new dir, it must still find analyze_summary.log in the older dir.
 - Check for `"zTopBuild normal task termination"` (exact string) — do NOT match `"zTopBuildResultAnalyzer"` which appears much earlier
