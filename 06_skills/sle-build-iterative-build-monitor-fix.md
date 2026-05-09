@@ -75,10 +75,12 @@ vscode_askQuestions with questions:
 > find /nfs/site/disks/issp_ttl_emu_compile_001/ -maxdepth 4 -name "*.nbtask" -newer /tmp -user $USER 2>/dev/null
 > ```
 
-```tcsh
-cd /path/to/workspace          # e.g. .../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
-setenv WORKAREA $PWD           # set WORKAREA to the exact path including any suffix (.1, .2, etc.)
-setenv LM_PROJECT DDG-TTLPKG   # REQUIRED for TTL builds — prevents getLf license failures
+```bash
+# Use bash (not tcsh) — preferred for all TTL builds
+# ALWAYS set WORKAREA to the explicit absolute path — do NOT use $PWD
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/<exact-workarea>  # e.g. pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
+export LM_PROJECT=DDG-TTLPKG   # REQUIRED for TTL builds — prevents getLf license failures
+cd $WORKAREA/flows/grdlbuild
 grdlbuild <TARGET> -nb
 ```
 - `setenv WORKAREA` **MUST** be set before calling `grdlbuild` — the CTH wrapper uses it to set
@@ -409,7 +411,7 @@ grdlbuild <TARGET> -nb -id
 
 Or in tcsh:
 ```tcsh
-setenv WORKAREA /exact/path/to/workarea
+setenv WORKAREA /nfs/site/disks/issp_ttl_emu_compile_001/<exact-workarea>
 setenv LM_PROJECT DDG-TTLPKG
 cd $WORKAREA/flows/grdlbuild
 grdlbuild <TARGET> -nb -id
@@ -589,13 +591,20 @@ ZeBu builds use a different orchestrator (**zCui**) than VCS builds. After grdlb
 - The zCui work directory is: `$BUILD/zse5/zcui.work/`
 
 ### ZeBu Step 1: Launch Build
-Same as VCS — grdlbuild handles the launch:
-```tcsh
-setenv WORKAREA /path/to/workspace
-setenv LM_PROJECT DDG-TTLPKG
-grdlbuild :ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse -id
+Same as VCS — grdlbuild handles the launch. Always use bash and set WORKAREA explicitly:
+```bash
+# ALWAYS set WORKAREA explicitly — do NOT rely on inherited env var or setenv WORKAREA $PWD
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/<exact-workarea-name>  # include .1/.2 suffix
+export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb -id
 ```
 Launch in a background terminal. grdlbuild will set up the environment and invoke zCui.
+
+> ⚠️ **CRITICAL — Use the exact WORKAREA path, not a variable like `$PWD`.**
+> After any `cd` operation, `$PWD` changes. Setting `export WORKAREA=$PWD` is only safe if done immediately after `cd $WORKAREA/flows/grdlbuild` — but this is fragile. Always set WORKAREA to the explicit absolute path of the target workarea (e.g., `.../pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1`).
+> Also: TTL grdlbuild targets do NOT use a leading colon. Use `ttlbx_n2p:emu:sle:...` NOT `:ttlbx_n2p:emu:sle:...`.
+> Also: `-nb` is ALWAYS required for TTL ZSE5 builds — do not omit it.
 
 **IMPORTANT — Pre-zCui `cp: File exists` failure with `-id`:**
 When using `-id` (incremental), grdlbuild runs `make cleanall flowgen` which deletes the `zse5/` target directory then recreates it. However, DVB's `Makefile.common` prerequisite target uses `\cp -Hrf` (no force flag) to copy build config files into `zse5/user_inputs/`. If a previous failed or interrupted build left stale files in `user_inputs/`, the `\cp` fails:

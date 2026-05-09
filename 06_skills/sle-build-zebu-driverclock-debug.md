@@ -388,7 +388,8 @@ tb_top.pkg.pcdpkg.pcd
 
 #### Worked Example: pkg_chpr_p2e4_816_fast (ttlhm_n2p DUT, ww18 2026)
 
-**Build path**: `/nfs/site/disks/issp_ttl_emu_compile_005/pkg-ttlpkg-a0-cdie_ww13e_hub_ww13h_pcd_ww15a_github/output/ttlhm_n2p/emu/zebu_zebu/pkg_chpr_p2e4_816_fast/zse5/`
+**Build path**: `$WORKAREA/output/ttlhm_n2p/emu/zebu_zebu/pkg_chpr_p2e4_816_fast/zse5/`
+*(Historical reference: `/nfs/site/disks/issp_ttl_emu_compile_005/pkg-ttlpkg-a0-cdie_ww13e_hub_ww13h_pcd_ww15a_github/`)*
 
 **Symptom**: driverClk at ~27 kHz. All 100 timing paths from single source `U0_M0_F9.zext_p_11038`, 36,677 ns delay, 285 FPGA hops.
 

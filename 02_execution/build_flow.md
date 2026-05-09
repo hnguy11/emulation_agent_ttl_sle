@@ -26,9 +26,10 @@ tags: [build, compilation, grdlbuild, zebu, resume, stages]
 > The NB feeder name is derived from `pwd` (so `.1` appears in the name), but all actual paths inside the nbtask use `$WORKAREA`.
 
 ```bash
-cd /nfs/site/disks/issp_ttl_emu_compile_001/<workarea>   # e.g. pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
-export WORKAREA=$(pwd)   # MUST come AFTER cd — $(pwd) captures the exact path you just cd'd into
+# ALWAYS use explicit path — do NOT use export WORKAREA=$(pwd) (fragile if you're in a subdir)
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/<workarea>   # e.g. pkg-ttlpkg-a0-ttlbxpkg-c15a_h15b_p13a.1
 export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
 nohup grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb > /tmp/grdlbuild_ttlbx_nb.log 2>&1 &
 ```
 
