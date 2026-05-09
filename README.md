@@ -95,23 +95,18 @@ flowchart TD
     SETUP --> COMPILE
 
     COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild ... -nb\n14 build stages · ~50 hrs\nMonitor progress"]
-    COMPILE -->|"ZSE5 only"| DRIVCLK
+    COMPILE --> MIDCHECK
 
-    DRIVCLK["⏱️ MID-BUILD CHECK\n━━━━━━━━━━━━━━━━━━━━━\nAfter zCoreBuildTiming:\nCheck driverClk in zTime.log\nThreshold: ≥ 200 kHz"]
-    DRIVCLK -->|"✅ ≥ 200 kHz"| VERIFY
-    DRIVCLK -->|"❌ < 200 kHz"| DRIVFIX
+    MIDCHECK["⏱️🔌 MID-BUILD CHECKS\n━━━━━━━━━━━━━━━━━━━━━\nZSE5: driverClk in zTime.log ≥ 200 kHz\nPost-elab: Reset connectivity check\n(non-blocking — 3 groups, 17 signals)"]
+    MIDCHECK -->|"✅ checks pass"| VERIFY
+    MIDCHECK -->|"❌ driverClk slow"| DRIVFIX
 
-    DRIVFIX["🐢 driverClk TOO SLOW\n━━━━━━━━━━━━━━━━━━━━━\nRead driverClk KB immediately\nDon't wait for build to finish\nApply zforce/ProbesLib fix"]
+    DRIVFIX["🐢 driverClk TOO SLOW\n━━━━━━━━━━━━━━━━━━━━━\nRead driverClk KB immediately\nApply zforce/ProbesLib fix"]
     DRIVFIX -->|"🔁 rebuild"| COMPILE
 
     VERIFY["✅ VERIFY BUILD\n━━━━━━━━━━━━━━━━━━━━━\n6 pass checks\nshadow files · backend dirs\nMuDb · libs · readmem · logs"]
     VERIFY -->|"✅ all 6 pass"| POSTBUILD
     VERIFY -->|"❌ fail"| DEBUG
-
-    COMPILE -->|"post-elab"| RESETCHECK
-
-    RESETCHECK["🔌 RESET CONNECTIVITY CHECK\n━━━━━━━━━━━━━━━━━━━━━\nNon-blocking · runs post-elab\n6 signals: epd_on, cold/warm_boot,\npltrst, vdd2_pwrgd, slp_s3/s4/s5\nVerify pad→hub end-to-end paths"]
-    RESETCHECK -->|"continue"| VERIFY
 
     COMPILE -->|"❌ build error"| DEBUG
 
@@ -127,17 +122,16 @@ flowchart TD
 
     DONE([🎉 Build Complete])
 
-    style POSTBUILD fill:#4a1a6b,stroke:#b366e0,stroke-width:3px,color:#fff
-    style RESETCHECK fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
+    style START fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
     style SETUP fill:#2a2a5a,stroke:#7777cc,stroke-width:3px,color:#fff
     style COMPILE fill:#0d3b66,stroke:#4a9eff,stroke-width:3px,color:#fff
-    style DRIVCLK fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
+    style MIDCHECK fill:#3b2a00,stroke:#f0ad4e,stroke-width:3px,color:#fff
     style DRIVFIX fill:#6b1d1d,stroke:#ff6b6b,stroke-width:3px,color:#fff
     style VERIFY fill:#1b4332,stroke:#6abf69,stroke-width:3px,color:#fff
     style DEBUG fill:#6b1d1d,stroke:#ff6b6b,stroke-width:3px,color:#fff
     style DOCUMENT fill:#4a1a6b,stroke:#b366e0,stroke-width:3px,color:#fff
+    style POSTBUILD fill:#4a1a6b,stroke:#b366e0,stroke-width:3px,color:#fff
     style DONE fill:#1b6b1b,stroke:#5cb85c,stroke-width:3px,color:#fff
-    style START fill:#333,stroke:#aaa,stroke-width:2px,color:#fff
 ```
 
 ### Workflow Details
@@ -149,13 +143,13 @@ flowchart TD
 4. WORKAREA path (always asked — never assumed)
 5. Which model to build
 
-**Step 1: Compile** — Launches `grdlbuild` and monitors progress through 14 stages (~50 hrs for ZSE5). Reads both monitoring KB files before starting.
+**Mid-Build Checks** — Two non-blocking checks run during the build:
+- **driverClk (ZSE5 only)**: As soon as `zCoreBuildTiming` completes, checks `zTime.log` immediately. If driverClk < 200 kHz, reads the driverClk KB and alerts you — the build result would be unusable. Does NOT wait for the full build to finish.
+- **Reset connectivity (post-elab)**: After analyze completes, verifies 3 groups of signals (17 total): Group A reset/power (epd_on, pwrgd, boot triggers, pltrst, pmsync/pmdown), Group B IOSF SB structural path, Group C cross-die clock requests. Non-blocking — does not stop the build.
 
-**Mid-Build driverClk Check (ZSE5 only)** — As soon as `zCoreBuildTiming` completes, checks `zTime.log` immediately. Does NOT wait for the full build to finish. If driverClk < 200 kHz, reads the driverClk KB and alerts you — the build result would be unusable.
+> ⚠️ **driverClk non-determinism**: The same workspace can produce wildly different driverClk across builds (e.g., 612 kHz vs 10 kHz). A single good result does NOT mean the issue is resolved.
 
-> ⚠️ **Non-deterministic risk**: The same workspace can produce wildly different driverClk across builds (e.g., 612 kHz vs 10 kHz from identical source). A single good result does NOT mean the issue is resolved.
-
-**Post-Elab Reset Connectivity Check** — After the analyze/elab phase completes, the agent can run a non-blocking connectivity check on 6 critical reset signals (epd_on, cold_boot_trigger, warm_boot_trigger, pltrst, vdd2_pwrgd, slp_s3/s4/s5). Verifies end-to-end paths from PCD IO pads through bdie tran gates to hub ports. Does not gate the build — issues are reported for user review.
+**Post-Elab Reset Connectivity Check** — After the analyze/elab phase completes, the agent runs a non-blocking connectivity check on 3 groups of signals (17 total): Group A reset/power (epd_on, pwrgd, boot triggers, pltrst, pmsync/pmdown), Group B IOSF SB structural path (d2d_iiosf_sb_link, ISM states, PMA FSM, sb_link_rst_b), Group C cross-die clock requests (XTAL, CRO, OCB, pmc_wake). Does not gate the build — issues are reported for user review.
 
 **Verify** — Runs 6 pass checks after build completes. All must pass.
 
