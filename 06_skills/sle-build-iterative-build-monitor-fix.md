@@ -796,81 +796,120 @@ MONITOR_LOG="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.log"     # unique per WORKAR
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$MONITOR_LOG"; }
 send_email() { echo -e "$2" | /bin/mail -s "$1" "$USER_EMAIL"; }
 
+LOGDIR="$BUILD/zse5/log"
+
 log "=== Monitor started: $MODEL in $WORKAREA ==="
 log "BUILD=$BUILD/zse5"
 
-# ── STARTUP BASELINE ──────────────────────────────────────────────────────────
-# Record the newest log subdir that exists RIGHT NOW. Any failure_info.log in
-# this dir or older dirs is stale (from a prior build run) and must be ignored.
-# Only failure_info.log files in NEW log subdirs (created after this point)
-# signal a real failure in the current build.
-STARTUP_LOG_DIR=$(ls -t "$BUILD/zse5/log/" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
-CURRENT_LOG_DIR="$STARTUP_LOG_DIR"
-[ -n "$STARTUP_LOG_DIR" ] && log "Baseline log dir at startup: $STARTUP_LOG_DIR (stale — failures here will be ignored)"
+# ── STARTUP BASELINE: stale failure_info.log at root ─────────────────────────
+# DVB's make_execute.py symlinks $LOGDIR/failure_info.log → the most recent NB
+# task failure. Capture its target NOW so we can ignore it as stale and only
+# alert on NEW failures that appear after the monitor starts.
+STALE_FAIL_TARGET=""
+if [ -L "$LOGDIR/failure_info.log" ]; then
+    STALE_FAIL_TARGET=$(readlink -f "$LOGDIR/failure_info.log" 2>/dev/null)
+    log "Baseline: stale failure_info.log → $STALE_FAIL_TARGET (ignoring)"
+fi
+
+# ── STARTUP BASELINE: EmuGen stage log mtimes ────────────────────────────────
+# EmuGen stages (pre_analyze, post_analyze, rtlchanges_*, emu_gen) run as
+# buildit.py invocations from the Makefile — NOT as DVB NB sub-tasks.
+# They do NOT create failure_info.log. Failures are detected by watching root
+# log files for RuntimeError/Traceback. Record current mtimes so we only check
+# content written AFTER monitor start (avoids false positives from prior runs).
+declare -A EMUSTAGE_MTIME
+declare -A EMUSTAGE_REPORTED
+EMUSTAGES="pre_analyze post_analyze rtlchanges_precheck rtlchanges_postcheck emu_gen"
+for stage in $EMUSTAGES; do
+    STAGELOG="$LOGDIR/${stage}.log"
+    if [ -f "$STAGELOG" ]; then
+        EMUSTAGE_MTIME[$stage]=$(stat -c %Y "$STAGELOG" 2>/dev/null || echo 0)
+        log "Baseline mtime for $stage.log: ${EMUSTAGE_MTIME[$stage]}"
+    else
+        EMUSTAGE_MTIME[$stage]=0
+    fi
+    EMUSTAGE_REPORTED[$stage]=0
+done
 
 ANALYZE_REPORTED=0
 DRVCLK_REPORTED=0
 HFA_REPORTED=0
+HEARTBEAT_COUNT=0
 
 while true; do
 
-    # ── PRE-ZCUI MONITORING ─────────────────────────────────────────────────
-    # Detect new log subdir — signals start of a new pre_analyze/analyze run
-    LATEST_LOG_DIR=$(ls -t "$BUILD/zse5/log/" 2>/dev/null | grep -E '^[0-9]+\.' | head -1)
-    if [ -n "$LATEST_LOG_DIR" ] && [ "$LATEST_LOG_DIR" != "$CURRENT_LOG_DIR" ]; then
-        log "📁 New build run started: $LATEST_LOG_DIR"
-        CURRENT_LOG_DIR="$LATEST_LOG_DIR"
-        ANALYZE_REPORTED=0
+    HEARTBEAT_COUNT=$((HEARTBEAT_COUNT + 1))
+
+    # ── HEARTBEAT every 5 cycles (5 min pre-zCui, 25 min during zCui) ────────
+    if [ $((HEARTBEAT_COUNT % 5)) -eq 0 ]; then
+        RECENT_LOG=$(ls -t "$LOGDIR"/*.log 2>/dev/null | head -1)
+        RECENT_BASE=$(basename "${RECENT_LOG:-unknown}" 2>/dev/null)
+        log "💓 Monitoring: $MODEL | Most recent log: $RECENT_BASE"
     fi
 
-    # Check failure_info.log ONLY in the current run's log dir (never in STARTUP_LOG_DIR)
-    if [ -n "$CURRENT_LOG_DIR" ] && [ "$CURRENT_LOG_DIR" != "$STARTUP_LOG_DIR" ]; then
-        FAIL_FILE="$BUILD/zse5/log/$CURRENT_LOG_DIR/failure_info.log"
-        if [ -f "$FAIL_FILE" ]; then
-            log "❌ PRE-ZCUI FAILURE in $CURRENT_LOG_DIR:"
-            head -60 "$FAIL_FILE" | while IFS= read -r line; do log "  $line"; done
+    # ── DVB NB failures: root failure_info.log symlink ────────────────────────
+    # DVB's make_execute.py creates $LOGDIR/<timestamp>/failure_info.log AND
+    # symlinks $LOGDIR/failure_info.log → the timestamped file. This covers ALL
+    # DVB NB sub-task failures: analyze, c_compile, dw_gen, fe_be, etc.
+    # NOTE: On TTL each DVB NB sub-task gets its own timestamped dir (there are
+    # multiple dirs per build: one for spark_co, one for gen_dv_flist, one for
+    # c_compile+dw_gen+gen_analyze_make, one for analyze, one for fe_be, etc.).
+    # Tracking the "latest timestamped dir" and checking failure_info.log within
+    # it is fragile and missed some stages. Instead, watch the ROOT symlink.
+    if [ -L "$LOGDIR/failure_info.log" ]; then
+        CURRENT_FAIL_TARGET=$(readlink -f "$LOGDIR/failure_info.log" 2>/dev/null)
+        if [ -n "$CURRENT_FAIL_TARGET" ] && [ "$CURRENT_FAIL_TARGET" != "$STALE_FAIL_TARGET" ]; then
+            log "❌ DVB NB FAILURE (failure_info.log):"
+            while IFS= read -r line; do log "  $line"; done < <(head -60 "$LOGDIR/failure_info.log")
             send_email "[ZeBu FAIL pre-zCui] $MODEL ($WORKAREA_STEM)" \
-                "Pre-zCui failure in $CURRENT_LOG_DIR.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(head -60 $FAIL_FILE)"
+                "DVB NB stage failure.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(head -60 $LOGDIR/failure_info.log)"
             log "Monitor stopping — fix the failure and relaunch the build."
             exit 1
         fi
+    fi
 
-        # Detect analyze PASSED (all libs passed, none failed)
-        if [ "$ANALYZE_REPORTED" = "0" ]; then
-            SUMLOG="$BUILD/zse5/log/$CURRENT_LOG_DIR/analyze_summary.log"
+    # ── EmuGen stage failures: watch root log files for error patterns ────────
+    # ALL EmuGen stages (pre_analyze, post_analyze, rtlchanges_*, emu_gen)
+    # write to fixed log paths in $LOGDIR/ root — no failure_info.log ever created.
+    # Only check files whose mtime advanced past the startup baseline (new content).
+    for stage in $EMUSTAGES; do
+        if [ "${EMUSTAGE_REPORTED[$stage]}" = "1" ]; then continue; fi
+        STAGELOG="$LOGDIR/${stage}.log"
+        [ -f "$STAGELOG" ] || continue
+        CURRENT_MTIME=$(stat -c %Y "$STAGELOG" 2>/dev/null || echo 0)
+        [ "$CURRENT_MTIME" -le "${EMUSTAGE_MTIME[$stage]}" ] && continue
+        if grep -q "RuntimeError\|ERROR: CHECK FAILED\|Traceback (most recent" "$STAGELOG" 2>/dev/null; then
+            EMUSTAGE_REPORTED[$stage]=1
+            ERRORS=$(grep "RuntimeError\|ERROR:\|FAILED" "$STAGELOG" 2>/dev/null | tail -15)
+            log "❌ $stage FAILED:"
+            while IFS= read -r line; do log "  $line"; done <<< "$ERRORS"
+            send_email "[ZeBu FAIL $stage] $MODEL ($WORKAREA_STEM)" \
+                "$stage failed.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$ERRORS"
+            log "Monitor stopping — fix and relaunch."
+            exit 1
+        fi
+    done
+
+    # ── Analyze PASSED: search ALL timestamped dirs ───────────────────────────
+    # analyze_summary.log lives in ONE of the many timestamped NB sub-task dirs.
+    # Do NOT track "current dir" — scan all dirs so rotation doesn't miss it.
+    # IMPORTANT: Do NOT use "|| echo 0" with grep -c.
+    # grep -c exits with 1 on no match but still outputs "0" to stdout,
+    # so "|| echo 0" produces "0\n0" which is NOT a valid integer.
+    # Use ${VAR:-0} fallback instead.
+    if [ "$ANALYZE_REPORTED" = "0" ]; then
+        for d in $(ls -t "$LOGDIR" 2>/dev/null | grep -E '^[0-9]+\.'); do
+            SUMLOG="$LOGDIR/$d/analyze_summary.log"
             if [ -f "$SUMLOG" ]; then
-                # IMPORTANT: Do NOT use "|| echo 0" with grep -c.
-                # grep -c exits with 1 on no match but still outputs "0" to stdout,
-                # so "|| echo 0" produces "0\n0" which is NOT a valid integer.
-                # Use ${VAR:-0} fallback instead, which is safe for empty/unset.
-                PASSED=$(grep -c "PASSED" "$SUMLOG" 2>/dev/null)
-                FAILED=$(grep -c "FAILED" "$SUMLOG" 2>/dev/null)
-                PASSED=${PASSED:-0}
-                FAILED=${FAILED:-0}
+                PASSED=$(grep -c "PASSED" "$SUMLOG" 2>/dev/null); PASSED=${PASSED:-0}
+                FAILED=$(grep -c "FAILED" "$SUMLOG" 2>/dev/null); FAILED=${FAILED:-0}
                 if [ "$PASSED" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
                     log "✅ analyze PASSED ($PASSED libs)"
                     ANALYZE_REPORTED=1
                 fi
+                break  # Only check most-recent dir that has analyze_summary.log
             fi
-        fi
-    fi
-
-    # ── POST_ANALYZE FAILURE DETECTION ──────────────────────────────────────
-    # post_analyze (rtlchanges_postcheck) writes directly to $BUILD/zse5/log/ root,
-    # NOT into a timestamped subdir — so failure_info.log detection above misses it.
-    # Check post_analyze.log for RuntimeError which signals postcheck failure.
-    if [ "${POST_ANALYZE_REPORTED:-0}" = "0" ]; then
-        POST_LOG="$BUILD/zse5/log/post_analyze.log"
-        POSTCHECK_LOG="$BUILD/zse5/log/rtlchanges_postcheck.log"
-        if [ -f "$POST_LOG" ] && grep -q "RuntimeError\|ERROR: CHECK FAILED" "$POST_LOG" 2>/dev/null; then
-            ERRORS=$(grep "ERROR:" "$POSTCHECK_LOG" 2>/dev/null | head -10)
-            log "❌ POST_ANALYZE FAILED (rtlchanges_postcheck):"
-            while IFS= read -r line; do log "  $line"; done <<< "$ERRORS"
-            send_email "[ZeBu FAIL post_analyze] $MODEL ($WORKAREA_STEM)" \
-                "rtlchanges_postcheck failed.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$ERRORS\n\nFix: update rtlchanges_optional_ips.json and relaunch."
-            POST_ANALYZE_REPORTED=1
-            exit 1
-        fi
+        done
     fi
 
     # ── ZCUI MONITORING (once zcui.work/ appears) ───────────────────────────
@@ -959,7 +998,10 @@ tail -30 /tmp/monitor_${WORKAREA_STEM}_${MODEL}.log
 - **WORKAREA must be hardcoded inside the script** — if the user has parallel builds, each monitor needs its own hardcoded WORKAREA so they don't interfere. Never use `$WORKAREA` from the shell environment.
 - **Monitor log is in `/tmp`** with WORKAREA+MODEL in the filename — unique per build, survives zse5/ not existing yet at deploy time
 - **Do NOT use `pgrep`** — it is prohibited in this shell environment. Use file-based signals only (log dirs, failure_info.log, zCui.log keywords).
-- **STARTUP_LOG_DIR baseline is essential**: without it, the monitor will immediately see `failure_info.log` from a prior failed run and exit as a false positive. Always capture the baseline at script start.
+- **Root `failure_info.log` symlink** (not per-timestamp-dir tracking): DVB's `make_execute.py` symlinks `$LOGDIR/failure_info.log` → the most recent NB sub-task failure. On TTL each DVB NB sub-task (spark_co, gen_dv_flist, c_compile/dw_gen/gen_analyze_make, analyze, fe_be) gets its own timestamped dir, so there are many dirs per build. Tracking "latest timestamped dir" and checking `failure_info.log` within it is fragile — use the root symlink instead. Baseline its target at startup to avoid stale false positives.
+- **EmuGen stage failures use root log files, NOT failure_info.log**: Stages `pre_analyze`, `post_analyze`, `rtlchanges_precheck`, `rtlchanges_postcheck`, `emu_gen` are run as `buildit.py` invocations from the Makefile — not as DVB NB sub-tasks. They write to fixed `$LOGDIR/<stage>.log` paths and never create `failure_info.log`. Detect failures by watching these root log files for `RuntimeError|ERROR: CHECK FAILED|Traceback`. Use mtime baselining at startup to avoid false positives from prior runs.
+- **Heartbeat logging every 5 cycles** so the user can see the monitor is alive even during long quiet phases (analyze takes ~45 min, fe_be takes ~25 hrs).
+- **Search ALL timestamped dirs for analyze_summary.log** — do NOT restrict to "current dir". The analyze NB job creates one dir, then later NB jobs create new dirs. If the monitor switches to the new dir, it must still find analyze_summary.log in the older dir.
 - Check for `"zTopBuild normal task termination"` (exact string) — do NOT match `"zTopBuildResultAnalyzer"` which appears much earlier
 - Email address: always use `hoa.nguyen@intel.com` — do NOT derive from `whoami`
 - Include WORKAREA stem AND MODEL in every email subject — user runs multiple parallel builds
