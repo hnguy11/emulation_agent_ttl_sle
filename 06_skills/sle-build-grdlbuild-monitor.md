@@ -287,6 +287,26 @@ Once zCui starts, it schedules tasks in this dependency order (from `compilation
 
 ### ZeBu Monitoring Procedure
 
+> ⚠️ **CRITICAL — Use WORKAREA-specific sources ONLY. Never use the shared NB feeder log alone.**
+>
+> The NB feeder log at `/tmp/gradle.nbflow.hnguy11/logs/nbfeeder.*.log` is **shared across ALL builds** that ran on the same day — including builds from other workareas (e.g., non-.1 vs .1). Task IDs in that log accumulate from every grdlbuild launched by the user. Reading it without filtering by workarea path will mix status from other builds and produce incorrect results.
+>
+> **Always use these WORKAREA-specific primary sources for ZSE5 monitoring:**
+> | Stage | Correct Log to Use |
+> |-------|--------------------|
+> | Pre-zCui (spark_co, emu_gen, analyze, etc.) | `$WORKAREA/output/grdlbuild/logs/ttlbx_n2p.emu.sle.*_zse.log` |
+> | zCui phase overview | `$BUILD/zse5/zcui.work/compilation_status.log` |
+> | zCui task detail | `$BUILD/zse5/zcui.work/zCui/log/zCui.log` |
+> | ZSE5 output existence | `ls $BUILD/zse5/zcui.work/` |
+>
+> Where `$BUILD = $WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/$MODEL` — all paths use the **exact same `$WORKAREA`** (including any `.1`, `.2` suffix).
+>
+> **When you MUST check the feeder log** (e.g., to get NB job details), ALWAYS verify the task file path in every entry contains your exact `$WORKAREA`:
+> ```bash
+> grep "pkg_chpr_p2e4_816_fast" /tmp/gradle.nbflow.hnguy11/logs/nbfeeder.*.log | grep "$WORKAREA"
+> # If the grep hits entries with a DIFFERENT workarea path → those are from a different build. Ignore them.
+> ```
+
 #### Pre-zCui Status Check
 Before zCui starts (~30-60 min after grdlbuild launch), the gradle task log tracks pre-zCui stages:
 ```bash

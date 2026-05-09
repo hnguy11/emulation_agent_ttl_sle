@@ -614,6 +614,26 @@ Then relaunch with the same `-id` command. The `.nfs*` busy-file errors from `rm
 
 ZeBu builds are **much longer** than VCS builds (12-24+ hours end-to-end). Deploy a background monitor script for automated polling.
 
+> ⚠️ **CRITICAL — Use WORKAREA-specific log paths. Never read the shared NB feeder log alone.**
+>
+> The NB feeder log (`/tmp/gradle.nbflow.hnguy11/logs/nbfeeder.*.log`) is **shared across ALL builds** run by the user on the same day, including builds from other workareas. It accumulates task IDs from every grdlbuild invocation. Reading it without filtering by workarea path produces incorrect status (tasks from the wrong workarea appear as if they belong to the current build).
+>
+> **Primary monitoring sources — always use `$WORKAREA`-prefixed paths:**
+> | Phase | Correct Log |
+> |-------|------------|
+> | Pre-zCui stages | `$WORKAREA/output/grdlbuild/logs/ttlbx_n2p.emu.sle.*_zse.log` |
+> | zCui overview | `$BUILD/zse5/zcui.work/compilation_status.log` |
+> | zCui task transitions | `$BUILD/zse5/zcui.work/zCui/log/zCui.log` |
+> | ZSE5 started? | `ls $BUILD/zse5/zcui.work/` (directory exists only after emu_gen creates it) |
+>
+> `$BUILD = $WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/$MODEL` — all paths use the **exact `$WORKAREA`** including any `.1`, `.2` suffix.
+>
+> If you must check the feeder log, always filter on the exact workarea path to exclude other builds:
+> ```bash
+> grep "pkg_chpr_p2e4_816_fast" /tmp/gradle.nbflow.hnguy11/logs/nbfeeder.*.log | grep "$WORKAREA"
+> # Entries without $WORKAREA in the task file path = DIFFERENT build — ignore them
+> ```
+
 #### Quick Status Check (use `read_file` tool)
 ```
 read_file(filePath="$BUILD/zse5/zcui.work/compilation_status.log", startLine=1, endLine=100)
