@@ -105,10 +105,10 @@ flowchart TD
     SETUP["⚙️ SESSION SETUP\n━━━━━━━━━━━━━━━━━━━━━\n1. Autopilot mode\n2. Permission level\n3. Monitoring preference\n4. Which model"]
     SETUP --> COMPILE
 
-    COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild ... -nb\n14 build stages · ~50 hrs\nMonitor progress"]
+    COMPILE["🔨 STEP 1 — COMPILE\n━━━━━━━━━━━━━━━━━━━━━\ngrdlbuild ... -nb\nZSE5: ~25-50 hrs · 14 stages\nFPGA slimsim: ~2-5 hrs\nMonitor progress"]
     COMPILE --> MIDCHECK
 
-    MIDCHECK["⏱️🔌 MID-BUILD CHECKS\n━━━━━━━━━━━━━━━━━━━━━\nZSE5: driverClk in zTime.log ≥ 200 kHz\nPost-elab: Reset connectivity check\n(non-blocking — 3 groups, 17 signals)"]
+    MIDCHECK["⏱️🔌 MID-BUILD CHECKS\n━━━━━━━━━━━━━━━━━━━━━\n[ZSE5 only] driverClk in zTime.log ≥ 200 kHz\n[Both] Post-elab: Reset connectivity check\n(non-blocking — 3 groups, 17 signals)"]
     MIDCHECK -->|"✅ checks pass"| VERIFY
     MIDCHECK -->|"❌ driverClk slow"| DRIVFIX
 
