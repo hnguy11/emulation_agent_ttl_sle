@@ -960,7 +960,7 @@ STATUS_FILE="/tmp/monitor_${WORKAREA_STEM}_${MODEL}.status"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$MONITOR_LOG"; }
 send_email() { echo -e "$2" | /bin/mail -s "$1" "$USER_EMAIL"; }
-# write_status: call before every exit so the agent knows the outcome even when monitor is dead
+# write_status: writes persistent outcome to STATUS_FILE
 write_status() {
     local state="$1"
     local detail="$2"
@@ -1009,6 +1009,15 @@ DRVCLK_REPORTED=0
 HFA_REPORTED=0
 HEARTBEAT_COUNT=0
 
+# ── FAILURE STATE ─────────────────────────────────────────────────────────────
+# CRITICAL: Do NOT exit on failure. Instead, set FAILED_STAGE and keep looping.
+# This keeps the monitor alive so the agent always sees it running and the
+# heartbeat log loudly repeats the failure every 5 min until the build is fixed.
+# Exiting on failure was the root cause of missed failures — agent only checks
+# when asked, so a dead monitor looks identical to a healthy one.
+FAILED_STAGE=""
+FAILED_MSG=""
+
 # ── STARTUP BASELINE: zCui.log mtime ─────────────────────────────────────────
 # If a prior failed build left zCui.log with "Compilation Ended abnormally",
 # baseline its mtime so we don't false-alarm on it when the monitor restarts.
@@ -1027,31 +1036,42 @@ while true; do
     HEARTBEAT_COUNT=$((HEARTBEAT_COUNT + 1))
 
     # ── HEARTBEAT every 5 cycles (5 min pre-zCui, 25 min during zCui) ────────
+    # If build already failed, heartbeat loudly so agent sees it on next check.
     if [ $((HEARTBEAT_COUNT % 5)) -eq 0 ]; then
-        RECENT_LOG=$(ls -t "$LOGDIR"/*.log 2>/dev/null | head -1)
-        RECENT_BASE=$(basename "${RECENT_LOG:-unknown}" 2>/dev/null)
-        log "💓 Monitoring: $MODEL | Most recent log: $RECENT_BASE"
+        if [ -n "$FAILED_STAGE" ]; then
+            log "🚨 BUILD FAILED at [$FAILED_STAGE] — awaiting fix+relaunch | $FAILED_MSG"
+        else
+            RECENT_LOG=$(ls -t "$LOGDIR"/*.log 2>/dev/null | head -1)
+            RECENT_BASE=$(basename "${RECENT_LOG:-unknown}" 2>/dev/null)
+            log "💓 Monitoring: $MODEL | Most recent log: $RECENT_BASE"
+        fi
+    fi
+
+    # ── If already failed, skip all detection checks ──────────────────────────
+    if [ -n "$FAILED_STAGE" ]; then
+        sleep 60
+        continue
     fi
 
     # ── DVB NB failures: root failure_info.log symlink ────────────────────────
     # DVB's make_execute.py creates $LOGDIR/<timestamp>/failure_info.log AND
     # symlinks $LOGDIR/failure_info.log → the timestamped file. This covers ALL
     # DVB NB sub-task failures: analyze, c_compile, dw_gen, fe_be, etc.
-    # NOTE: On TTL each DVB NB sub-task gets its own timestamped dir (there are
-    # multiple dirs per build: one for spark_co, one for gen_dv_flist, one for
-    # c_compile+dw_gen+gen_analyze_make, one for analyze, one for fe_be, etc.).
-    # Tracking the "latest timestamped dir" and checking failure_info.log within
-    # it is fragile and missed some stages. Instead, watch the ROOT symlink.
+    # NOTE: On TTL each DVB NB sub-task gets its own timestamped dir.
+    # Watch the ROOT symlink — not individual timestamped dirs.
     if [ -L "$LOGDIR/failure_info.log" ]; then
         CURRENT_FAIL_TARGET=$(readlink -f "$LOGDIR/failure_info.log" 2>/dev/null)
         if [ -n "$CURRENT_FAIL_TARGET" ] && [ "$CURRENT_FAIL_TARGET" != "$STALE_FAIL_TARGET" ]; then
+            FAILED_STAGE="DVB NB"
+            FAILED_MSG="See $LOGDIR/failure_info.log"
             log "❌ DVB NB FAILURE (failure_info.log):"
             while IFS= read -r line; do log "  $line"; done < <(head -60 "$LOGDIR/failure_info.log")
             send_email "[ZeBu FAIL pre-zCui] $MODEL ($WORKAREA_STEM)" \
                 "DVB NB stage failure.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$(head -60 $LOGDIR/failure_info.log)"
             write_status "FAILED" "DVB NB stage failure — see $LOGDIR/failure_info.log"
-            log "Monitor stopping — fix the failure and relaunch the build."
-            exit 1
+            log "❌ Monitor entering FAILED state — heartbeat will repeat failure until build relaunched."
+            sleep 60
+            continue
         fi
     fi
 
@@ -1068,13 +1088,16 @@ while true; do
         if grep -q "RuntimeError\|ERROR: CHECK FAILED\|Traceback (most recent" "$STAGELOG" 2>/dev/null; then
             EMUSTAGE_REPORTED[$stage]=1
             ERRORS=$(grep "RuntimeError\|ERROR:\|FAILED" "$STAGELOG" 2>/dev/null | tail -15)
+            FAILED_STAGE="$stage"
+            FAILED_MSG="See $STAGELOG"
             log "❌ $stage FAILED:"
             while IFS= read -r line; do log "  $line"; done <<< "$ERRORS"
             send_email "[ZeBu FAIL $stage] $MODEL ($WORKAREA_STEM)" \
                 "$stage failed.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$ERRORS"
             write_status "FAILED" "$stage failed — see $STAGELOG"
-            log "Monitor stopping — fix and relaunch."
-            exit 1
+            log "❌ Monitor entering FAILED state — heartbeat will repeat failure until build relaunched."
+            sleep 60
+            continue 2
         fi
     done
 
@@ -1119,11 +1142,15 @@ while true; do
         # Definitive failure signal — excludes backend P&R strategy failures (see note below)
         if cat "$ZCUI_LOG" 2>/dev/null | grep -q "Compilation Ended abnormally"; then
             FAILED=$(cat "$ZCUI_LOG" | grep -A5 "List of failed tasks")
+            FAILED_STAGE="zCui fe_be"
+            FAILED_MSG="Compilation Ended abnormally — see $ZCUI_LOG"
             log "❌ ZCUI BUILD FAILED"
             send_email "[ZeBu FAIL] $MODEL ($WORKAREA_STEM)" \
                 "Build FAILED.\nWORKAREA: $WORKAREA\nMODEL: $MODEL\n\n$FAILED"
             write_status "FAILED" "zCui Compilation Ended abnormally — see $ZCUI_LOG"
-            exit 1
+            log "❌ Monitor entering FAILED state — heartbeat will repeat failure until build relaunched."
+            sleep 60
+            continue
         fi
 
         # Success
