@@ -144,10 +144,16 @@ flowchart TD
 5. Which model to build
 
 **Mid-Build Checks** — Two non-blocking checks run during the build:
-- **driverClk (ZSE5 only)**: As soon as `zCoreBuildTiming` completes, checks `zTime.log` immediately. If driverClk < 200 kHz, reads the driverClk KB and alerts you — the build result would be unusable. Does NOT wait for the full build to finish.
+- **driverClk (ZSE5 only)**: As soon as `zCoreBuildTiming` completes, checks `zTime.log` immediately. If driverClk < 200 kHz, reads the driverClk KB and alerts you — the build result would be unusable. Does NOT wait for the full build to finish. For converged builds, checks **each ZSE5 target independently**.
 - **Reset connectivity (post-elab)**: After analyze completes, verifies 3 groups of signals (17 total): Group A reset/power (epd_on, pwrgd, boot triggers, pltrst, pmsync/pmdown), Group B IOSF SB structural path, Group C cross-die clock requests. Non-blocking — does not stop the build.
 
 > ⚠️ **driverClk non-determinism**: The same workspace can produce wildly different driverClk across builds (e.g., 612 kHz vs 10 kHz). A single good result does NOT mean the issue is resolved.
+
+**Converged TTLbx: Parallel Target Management** — When all 3 targets run in parallel, the agent:
+- Tracks each target's status independently (Running / Passed / Failed / Relaunching)
+- Classifies failures as **shared-stage** (affects all 3 → full rebuild) or **per-target** (relaunch that target alone with `-id`)
+- Deploys separate monitor instances per target, each namespaced by WORKAREA+MODEL
+- Follows a decision tree: if one target fails while others are running, continues monitoring the others and debugs the failed target in parallel — unless the fix touches shared stages (filelists, RTL, `tool.cth`)
 
 **Post-Elab Reset Connectivity Check** — After the analyze/elab phase completes, the agent runs a non-blocking connectivity check on 3 groups of signals (17 total): Group A reset/power (epd_on, pwrgd, boot triggers, pltrst, pmsync/pmdown), Group B IOSF SB structural path (d2d_iiosf_sb_link, ISM states, PMA FSM, sb_link_rst_b), Group C cross-die clock requests (XTAL, CRO, OCB, pmc_wake). Does not gate the build — issues are reported for user review.
 
@@ -225,15 +231,18 @@ flowchart TD
 | Prompt | What it does |
 |--------|-------------|
 | `compile the model` | Start a fresh grdlbuild |
+| `compile all 3 TTLbx targets` | Launch converged build (p2e4 ZSE5 + cfgr ZSE5 + cfgr FPGA) |
 | `resume the build` | Continue a build with `-id` |
-| `check if compilation passed` | Run the 6 pass checks |
+| `check if compilation passed` | Run the 6 pass checks (per target for converged builds) |
 | `check driverClk` | Check zTime.log for driverClk speed |
 | `monitor the build` | Check current progress in grdlbuild.log |
+| `show status of all 3 targets` | Per-target snapshot: stage, status, driverClk for converged build |
 
 ### 🐛 Debugging
 | Prompt | What it does |
 |--------|-------------|
 | `debug this build failure` | Full triage: phase detection → symptoms → bug matching |
+| `one target failed, others are running` | Per-target failure triage: classify shared vs. per-target fix, relaunch only failed target if safe |
 | `search known bugs for <error text>` | Search the 57 BUG files |
 | `what known bugs match <symptom>?` | Find matching bugs by keyword |
 | `why is driverClk slow?` | Read driverClk KB and analyze zTime.log |

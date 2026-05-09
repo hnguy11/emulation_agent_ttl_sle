@@ -1,6 +1,6 @@
 ---
 name: sle-build-iterative-build-monitor-fix
-description: "Iteratively launch, monitor, diagnose, fix, and relaunch grdlbuild emulation builds. USE WHEN: user asks to run a build end-to-end, launch and monitor a grdlbuild, kick off a build and fix errors, iterative build-fix cycle, automated build management. Covers: setting WORKAREA, launching grdlbuild, phase-by-phase monitoring (emu_gen, genfilelist/dvJsonGenerator, VCS analysis, VCS elaboration), error detection, automated fix application, email reporting, rebuild decision-making. VCS/FPGA builds: deploy fpga_vcs_build_monitor.sh for autonomous background monitoring that survives across conversation turns. ZeBu (ZSE5) builds: deploy monitor_build.sh for zCui orchestrator monitoring, compilation_status.log polling, synthesis Bundle failure diagnosis, zTopBuild force assign verification, driverClk analysis from zTime.log."
+description: "Iteratively launch, monitor, diagnose, fix, and relaunch grdlbuild emulation builds. USE WHEN: user asks to run a build end-to-end, launch and monitor a grdlbuild, kick off a build and fix errors, iterative build-fix cycle, automated build management, converged TTLbx parallel build management. Covers: setting WORKAREA, launching grdlbuild, phase-by-phase monitoring (emu_gen, genfilelist/dvJsonGenerator, VCS analysis, VCS elaboration), error detection, automated fix application, email reporting, rebuild decision-making. Converged TTLbx: shared-vs-per-target stage classification, per-target state tracking table, one-target-fails decision tree, fix impact table (full rebuild vs -id per target), parallel monitor deployment. VCS/FPGA builds: deploy fpga_vcs_build_monitor.sh for autonomous background monitoring that survives across conversation turns. ZeBu (ZSE5) builds: deploy monitor_build.sh for zCui orchestrator monitoring, compilation_status.log polling, synthesis Bundle failure diagnosis, zTopBuild force assign verification, driverClk analysis from zTime.log."
 argument-hint: "Provide the WORKAREA path and the grdlbuild target (e.g., :ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs or :ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse). Optionally provide an email address for reports."
 ---
 
@@ -446,6 +446,154 @@ Continue monitoring from Step 2 until:
 - Build succeeds (all phases pass)
 - A non-automatable error is encountered
 - User requests to stop
+
+---
+
+## Converged TTLbx Build: Parallel Target Management
+
+When running the converged TTLbx build (`grdlbuild ... -nb` with all 3 targets), grdlbuild runs all 3 targets in a single Gradle invocation. Early stages are shared; later stages run in parallel. This section defines how to track, triage, and fix failures across parallel targets without conflating logs.
+
+### Stage Classification: Shared vs. Per-Target
+
+Understanding which stages are shared is critical — a fix that touches a shared-stage input requires a **full rebuild of all 3 targets**, not just the failed one.
+
+| Stage | Shared / Per-Target | Notes |
+|-------|---------------------|-------|
+| `spark_co`, `override_vcs_home` | **Shared** | Environment setup — any fix here affects all targets |
+| `gen_dv_flist` | **Shared** | Filelists — changing filelist sources invalidates all analyze stages |
+| `c_compile`, `dw_gen`, `gen_analyze_make` | **Shared** | C model, DW libs — changing `tool.cth` invalidates all |
+| `zse_lint`, `pre_analyze`, `gen_elab_src` | **Shared** | Pre-elab setup |
+| `analyze` | **Per-Target** | Each target has its own VCS analyze run and output dir |
+| `fe_be` | **Per-Target** | Each ZSE5 target has its own DVB/ZeBu synthesis; FPGA has its own VCS elab |
+| `zebu_tb`, `emu_gen` | **Per-Target** | Final ZeBu/FPGA steps per target |
+
+> **Key rule**: If a fix modifies RTL source files, `tool.cth`, `cfg/compute.cth`, or filelists → those are shared-stage inputs → **abort all 3 targets and do a full rebuild** (no `-id`). If a fix only modifies a target-specific build config (e.g., `sle_dut.utf`, a ZSE5-only rtlchange) → relaunch only that target with `-id`.
+
+### Per-Target State Tracking
+
+Maintain this table in your session during a converged build. Update it as each target progresses:
+
+| Target | Type | Current Stage | Status | Notes |
+|--------|------|--------------|--------|-------|
+| `pkg_chpr_p2e4_816_fast` | ZSE5 | — | 🟡 Running | |
+| `pkg_chpr_cfgr_p2e0_816_fast` | ZSE5 | — | 🟡 Running | |
+| `pkg_chpr_cfgr_p2e0_816_fast` | FPGA | — | 🟡 Running | |
+
+Status legend: 🟡 Running · ✅ Passed · ❌ Failed · ⏸ Waiting (fix in progress) · 🔁 Relaunching
+
+**Output paths per target** (from `$WORKAREA/flows/grdlbuild/`):
+```bash
+ZSE5_P2E4="$WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/pkg_chpr_p2e4_816_fast/zse5"
+ZSE5_CFGR="$WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/pkg_chpr_cfgr_p2e0_816_fast/zse5"
+FPGA_CFGR="$WORKAREA/output/ttlbx_n2p/emu/fpgasim_emuvcs/pkg_chpr_cfgr_p2e0_816_fast_fpga_slimsim/vcs"
+```
+
+### Status Snapshot Command (run periodically during monitoring)
+
+```bash
+cd $WORKAREA/flows/grdlbuild
+
+echo "=== grdlbuild overall ==="
+grep -E "started|finished|FAILED" grdlbuild.log | tail -10
+
+echo "=== ZSE5 p2e4 — zCui ==="
+grep -E "stage|Bundle|FAILED|PASSED|Compilation Ended" $ZSE5_P2E4/zcui.work/zCui.log 2>/dev/null | tail -5
+
+echo "=== ZSE5 cfgr — zCui ==="
+grep -E "stage|Bundle|FAILED|PASSED|Compilation Ended" $ZSE5_CFGR/zcui.work/zCui.log 2>/dev/null | tail -5
+
+echo "=== FPGA cfgr — elab ==="
+tail -5 $FPGA_CFGR/log/*/elab.log 2>/dev/null || echo "(elab not yet started)"
+
+echo "=== driverClk snapshot ==="
+grep -E "driverClk|kHz" $ZSE5_P2E4/zcui.work/zebu.work/zTime.log 2>/dev/null | head -3
+grep -E "driverClk|kHz" $ZSE5_CFGR/zcui.work/zebu.work/zTime.log 2>/dev/null | head -3
+```
+
+### Decision Tree: One Target Fails, Others Running
+
+```
+One target fails during converged build
+│
+├── Is the failure in a SHARED stage (analyze or earlier)?
+│   ├── YES → Fix affects all targets
+│   │         1. Document the failing target
+│   │         2. DO NOT cancel other in-flight targets (let them finish)
+│   │         3. Apply fix to shared source
+│   │         4. After all targets finish (pass or fail), FULL rebuild (no -id):
+│   │            grdlbuild <all 3 targets> -nb
+│   │
+│   └── NO → Failure is in a PER-TARGET stage (fe_be, synthesis, FPGA elab)
+│             1. Continue monitoring other in-flight targets normally
+│             2. Debug and fix the failed target independently
+│             3. Relaunch ONLY the failed target with -id:
+│                grdlbuild <failed-target-only> -nb -id
+│             4. DO NOT relaunch the other targets (they're still running or passed)
+│
+└── Did the same error appear on multiple targets?
+    ├── YES → Likely a shared-stage or common RTL issue
+    │         Fix once, full rebuild (no -id)
+    └── NO  → Independent per-target issues
+              Fix and relaunch each independently with -id
+```
+
+### Per-Target Relaunch Commands
+
+When relaunching a single failed target (per-target failure — use `-id`):
+```bash
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/<workarea>
+export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
+
+# Relaunch ZSE5 p2e4 only
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb -id
+
+# Relaunch ZSE5 cfgr only
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse -nb -id
+
+# Relaunch FPGA only
+grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb -id
+```
+
+When a fix touches shared stages (full rebuild — NO `-id`):
+```bash
+# Full converged rebuild — all 3 targets from scratch
+grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb
+```
+
+### Fix Impact Classification (Quick Reference)
+
+| What changed | Stage scope | Action |
+|-------------|-------------|--------|
+| RTL source file (`.sv`, `.v`) | Shared (analyze) | Full rebuild — all 3 targets |
+| `tool.cth`, `cfg/compute.cth` | Shared | Full rebuild — all 3 targets |
+| Filelist (`.f`, `.list.mako`) | Shared | Full rebuild — all 3 targets |
+| ZeBu UTF config (`sle_dut.utf`) | Per-target (ZSE5 only) | Relaunch ZSE5 targets only with `-id` |
+| ZSE5 rtlchange (ZeBu-specific) | Per-target (ZSE5 only) | Relaunch affected ZSE5 target with `-id` |
+| FPGA rtlchange (VCS-only) | Per-target (FPGA only) | Relaunch FPGA target with `-id` |
+| Common rtlchange (all targets) | All targets | Relaunch all 3 with `-id` separately, OR full rebuild |
+| `sle_workarounds.py` | All targets | Relaunch all 3 with `-id` separately |
+
+### Monitor Deployment for Converged Builds
+
+For ZSE5 targets, deploy one `monitor_build.sh` instance **per ZSE5 target** — they use different BUILD paths and log files, so they run independently without interference. The FPGA target uses `fpga_vcs_build_monitor.sh` separately.
+
+```bash
+# Deploy ZSE5 p2e4 monitor
+cp /tmp/monitor_template.sh /tmp/monitor_${WS}_p2e4.sh
+# Edit: MODEL=pkg_chpr_p2e4_816_fast, BUILD=$WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/pkg_chpr_p2e4_816_fast
+nohup bash /tmp/monitor_${WS}_p2e4.sh > /dev/null 2>&1 &
+
+# Deploy ZSE5 cfgr monitor
+cp /tmp/monitor_template.sh /tmp/monitor_${WS}_cfgr.sh
+# Edit: MODEL=pkg_chpr_cfgr_p2e0_816_fast, BUILD=$WORKAREA/output/ttlbx_n2p/emu/zebu_zebu/pkg_chpr_cfgr_p2e0_816_fast
+nohup bash /tmp/monitor_${WS}_cfgr.sh > /dev/null 2>&1 &
+
+# FPGA monitor (uses its own script and output file)
+nohup bash $WORKAREA/src/val/fpga/scripts/fpga_vcs_build_monitor.sh "$WORKAREA" "hoa.nguyen@intel.com" 60 > /dev/null 2>&1 &
+```
+
+> ⚠️ Each monitor is hardcoded to its own BUILD path — they do NOT interfere. Email subjects include both WORKAREA stem and MODEL so you can identify which build sent an alert.
 
 ## Monitoring Tips
 
