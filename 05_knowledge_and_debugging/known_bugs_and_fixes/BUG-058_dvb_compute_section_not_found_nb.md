@@ -170,3 +170,7 @@ When launching grdlbuild with `-nb`, `LM_PROJECT` must be set correctly:
 export LM_PROJECT=DDG-TTLPKG
 ```
 The VSCode default shell sets an invalid project (`SC_HNGUY11_UNKN`). Always override before running grdlbuild.
+
+### Follow-on issue: BUG-059
+
+Populating `cfg/compute.cth` (this fix) resolves the "Compute section not found" fatal, but leaves `NB := 1` active in the PCD Makefile.cfg files. This causes a secondary failure where vlogan sub-jobs are dispatched via nbfeeder but silently "did not run" when running from a login node (no vp2ppm protocol). See **BUG-059** for the complete fix: clearing `NB :=` in the 3 `overrides/` Makefile.cfg files so DVB runs vlogan locally instead of via nbfeeder.
