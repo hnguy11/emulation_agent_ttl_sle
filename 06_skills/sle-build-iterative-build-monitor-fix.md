@@ -42,6 +42,41 @@ vscode_askQuestions with questions:
 
 ## Workflow Steps
 
+### Step 0b: MANDATORY Pre-Flight Workarea Check (run before EVERY grdlbuild launch)
+
+> ⚠️ **NEVER skip this step.** Skipping it risks silently routing the entire build to a teammate's workarea.
+
+**Root cause:** Intel's DVB/grdlbuild NB feeder is a long-lived JVM process per user per machine. When grdlbuild launches, it JOINS an existing feeder rather than spawning a new one. That feeder's `OriginalCwd` is baked into every NB sub-task environment (jem, vcssimmpp, cpp, analyze). Even when `$WORKAREA` is set correctly in the calling shell, all sub-tasks inherit the **feeder's** original environment — silently routing all build output to whichever workarea the feeder was started in. This is undetectable until hours later when output directories are empty in the target workarea.
+
+**Fix:** Kill any feeder whose `OriginalCwd` does not match the target workarea before every launch.
+
+```bash
+# Run the pre-flight check script — MANDATORY before every grdlbuild launch
+bash $KB_ROOT/06_skills/preflight_workarea_check.sh <TARGET_WORKAREA>
+
+# Example:
+bash /nfs/site/disks/issp_ttl_emu_compile_001/copilot_agents/emulation_agent_ttl_sle/06_skills/preflight_workarea_check.sh \
+  /nfs/site/disks/issp_ttl_gk_001/sle_releases/ttlbx/pkg-ttlbx-a0-ww20_c15a_h15b_p13a
+```
+
+The script:
+1. Verifies `TARGET_WORKAREA/flows/grdlbuild` exists
+2. Exports `WORKAREA=<TARGET_WORKAREA>` and `LM_PROJECT=DDG-TTLPKG`
+3. Finds all running NB feeders for the current user
+4. Kills any feeder whose `OriginalCwd` does NOT start with `TARGET_WORKAREA`
+5. Waits 8s and verifies all stale feeders are gone
+6. Exits 0 (safe to launch) or 1 (stale feeders still present — do NOT launch)
+
+**Do NOT proceed to grdlbuild if the script exits non-zero.**
+
+**Post-launch verification** (~60s after launch): confirm new feeder's `OriginalCwd` matches target workarea:
+```bash
+ps -u $USER -f | grep nbfeeder | grep -v grep
+# OriginalCwd must contain the TARGET_WORKAREA basename
+```
+
+---
+
 ### Step 1: Launch Build
 
 > ⚠️ **CRITICAL — Always validate WORKAREA and LM_PROJECT before launching**

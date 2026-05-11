@@ -117,3 +117,24 @@ The JSON file also has entries for non-FPGA model filtering (using positive rege
 - **Don't use `.*fpga.*` (positive match)** — the regex array specifies models where the rtlchange IS required, not where it's optional. The negative lookahead `^(?!.*fpga)` means "required for all models except FPGA".
 - **Path substring matching** — the JSON key is matched as a substring against the full rtlchanges directory path. Use enough of the path to be unique but not so much that it breaks on workspace path changes.
 - **JSON syntax** — ensure proper comma separation between entries. The last entry must NOT have a trailing comma.
+
+## Agent Implementation Note: Prefer `sed` for JSON Edits
+
+When modifying `rtlchanges_optional_ips.json`, **use `sed` via `bash`** instead of the `edit` tool. The `edit` tool has been observed to get interrupted/stuck on this file due to special regex characters like `(?!.*fpga)` in the replacement strings.
+
+### Recommended: sed one-liner pattern
+
+```bash
+# To update an existing entry's regex (e.g., add negative lookahead for fpga):
+sed -i 's/\("pcd_cfgr\/emu\/pchlp\/monitors": \)\["pkg_chpr_cfgr"\]/\1["pkg_chpr_cfgr(?!.*fpga)"]/' $WORKAREA/src/val/emu/scripts/rtlchanges_optional_ips.json
+
+# To add a new entry before the closing brace:
+sed -i '$ s/}/,\n    "new\/path\/here": ["^(?!.*fpga)"]\n}/' $WORKAREA/src/val/emu/scripts/rtlchanges_optional_ips.json
+```
+
+### Always verify after editing
+
+```bash
+grep "<key_substring>" $WORKAREA/src/val/emu/scripts/rtlchanges_optional_ips.json
+python3 -c "import json; json.load(open('$WORKAREA/src/val/emu/scripts/rtlchanges_optional_ips.json')); print('JSON valid')"
+```
