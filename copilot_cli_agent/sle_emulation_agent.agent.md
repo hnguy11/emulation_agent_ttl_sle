@@ -176,7 +176,8 @@ severity: blocker               # blocker | major | minor
 3. NEVER push to shared GK branches without user approval
 4. NEVER run compilation on the login node — always use compute resources
 5. ALWAYS ask before committing to git — never auto-commit
-6. DO NOT GUESS shell commands — Intel infrastructure has non-standard tools. Ask the user
+6. NEVER set `export NB := 1` or `export NBFEEDER := <address>` in `overrides/pcd*/verif/emu/*/Makefile.cfg` files — these control DVB sub-flow vlogan compilation and must remain empty; setting NB=1 here causes vlogan jobs to silently fail via nbfeeder (see BUG-059)
+7. DO NOT GUESS shell commands — Intel infrastructure has non-standard tools. Ask the user
 
 ---
 
@@ -200,13 +201,23 @@ When the user says "compile" or "build", you must know which model. If not clear
 
 ### Command — Start Fresh Build
 
+> ⚠️ **CRITICAL: Always explicitly export WORKAREA before running grdlbuild.**
+> grdlbuild uses `$WORKAREA` env var (from `gradle.properties`: `outputDir=${WORKAREA}/output/grdlbuild`) to determine ALL output paths — logs, nbtasks, and ZSE5 output.
+> If `$WORKAREA` is stale (e.g., set to a different workarea in VSCode's shell environment), grdlbuild will write all output to the WRONG workarea even if you `cd` into the correct one.
+> The feeder name is derived from the current directory (so it may look correct), but all paths will use `$WORKAREA`.
+
 ```bash
-cd $WORKAREA
+# ALWAYS set WORKAREA explicitly before launching — never rely on the existing env var
+export WORKAREA=<exact path to target workarea>
+cd $WORKAREA/flows/grdlbuild
 grdlbuild ttlbx_n2p:emu:sle:<MODEL_TARGET> -nb
 ```
 
 Examples:
 ```bash
+export WORKAREA=/nfs/site/disks/issp_ttl_emu_compile_001/<workarea-name>
+cd $WORKAREA/flows/grdlbuild
+
 # Converged TTLbx — all 3 targets in one grdlbuild (shares common dependency stages)
 grdlbuild ttlbx_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse ttlbx_n2p:emu:sle:pkg_chpr_cfgr_p2e0_816_fast_zse ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb
 
@@ -223,13 +234,30 @@ grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb
 grdlbuild ttlhm_n2p:emu:sle:pkg_chpr_p2e4_816_fast_zse -nb
 ```
 
+After launching, verify the build wrote to the correct workarea by confirming nbtask files appear under `$WORKAREA/output/grdlbuild/nbtasks/`.
+
+> **How to detect wrong-workarea builds:** If NB job logs appear under a different workarea than `$WORKAREA`, or ZSE5 output (zcui.work/) is in an unexpected directory, `$WORKAREA` was wrong at launch time. Kill the build and relaunch after explicitly setting `export WORKAREA=<correct-path>`.
+
 ### Command — Resume Build (skip completed stages)
 
 ```bash
+export WORKAREA=<exact path to target workarea>   # ALWAYS set explicitly — see WORKAREA warning above
+export LM_PROJECT=DDG-TTLPKG
+cd $WORKAREA/flows/grdlbuild
 grdlbuild ttlbx_n2p:emu:sle:<MODEL_TARGET> -nb -id
 ```
 
-Use `-id` ONLY when analyze/fe_be stages already completed. NEVER on first build.
+**When to use `-id`** (ignore-deps — skips already-completed upstream tasks):
+- After a build failure where some stages already completed (jem, vcssimmpp, cpp, vcssimmpp_elab, analyze, fe_be — or any combination)
+- After applying a fix to the stage that failed, when all prior stages passed
+- The `-id` flag tells Gradle to skip any task whose output already exists — it starts from the first incomplete task
+
+**NEVER use `-id`**:
+- On the very first build (no completed tasks exist)
+- After changing RTL source files, `cfg/compute.cth`, `tool.cth`, or filelists that invalidate upstream stages — those must re-run from scratch
+- After a clean (`make cleanall`) wipes the output
+
+**`-nb` is ALWAYS required** for TTL builds — never omit it. It submits DVB and ZSE5 tasks to the NB queue.
 
 ### Build Stages (14 stages, ~50 hrs total)
 
@@ -420,7 +448,7 @@ grep -i "error\|failed" grdlbuild.log | tail -20
 
 ### Step 2c: Match Known Bugs (30 seconds max)
 
-There are 57 BUG files (BUG-001 to BUG-057) in the KB. ALWAYS search them before investigating from scratch.
+There are 59 BUG files (BUG-001 to BUG-059) in the KB. ALWAYS search them before investigating from scratch.
 
 **Search by symptom text:**
 ```bash
