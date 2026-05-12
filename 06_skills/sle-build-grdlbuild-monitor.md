@@ -492,7 +492,87 @@ For long-running ZeBu builds, deploy a background monitor script per the templat
 6. After zTime appears, parse driverClk and alert if < 200 kHz
 7. On completion or failure, send email with WORKAREA, MODEL, and build summary
 
-### Two-Layer Monitoring Pattern (Recommended)
+### Monitoring Approaches — Three Options
+
+Choose based on how active the user wants real-time feedback and whether persistence across disconnects is needed.
+
+---
+
+#### Option A: Active In-Conversation Polling Loop (Recommended for interactive sessions)
+
+Deploy a polling loop directly in the agent conversation using an **async bash shell** (shellId="monitor"). This approach:
+- Polls every 5 minutes and prints a timestamped status snapshot directly in the chat
+- **Does NOT survive conversation disconnects** — only use when the user is actively watching the chat
+- **Better than manual polling**: user gets automatic updates without asking
+- **Better than background script**: no filesystem artifacts, simpler, immediate chat feedback
+
+**When user asks "can you actively monitor?" or "poll every few minutes" → use this.**
+
+**Script template** (write to `/tmp/monitor_build_hnguy11.sh`, then run async):
+
+```bash
+cat > /tmp/monitor_build_hnguy11.sh << 'EOF'
+#!/bin/bash
+WORKAREA="<EXACT_WORKAREA_PATH>"
+LOGDIR="$WORKAREA/output/grdlbuild/logs"
+POLL=0
+
+check_status() {
+    POLL=$((POLL+1))
+    TS=$(date '+%H:%M:%S')
+    SHADOW_COUNT=$(ls $WORKAREA/.shadow/ 2>/dev/null | wc -l)
+    SHADOWS=$(ls $WORKAREA/.shadow/ 2>/dev/null | sort | tr '\n' ' ')
+
+    # CRITICAL: Use ": *[1-9]" NOT "[^0]" — space before 0 is NOT a digit, would cause false positives
+    FAILURES=$(grep -rl "Exit Status.*:  *[1-9]" $LOGDIR/*.log 2>/dev/null | xargs -I{} basename {} 2>/dev/null)
+
+    # gen_filelist result
+    GF_DONE=$(grep "Finishing time" $LOGDIR/ttlbx_n2p.filelists_rtl.gen_filelist.log 2>/dev/null | tail -1)
+    GF_EXIT=$(grep "Exit Status" $LOGDIR/ttlbx_n2p.filelists_rtl.gen_filelist.log 2>/dev/null | tail -1)
+
+    echo "=== POLL #$POLL @ $TS === shadows=$SHADOW_COUNT"
+    [ -n "$SHADOWS" ] && echo "  Completed: $SHADOWS"
+    if [ -n "$GF_DONE" ]; then
+        echo "  gen_filelist: $GF_EXIT"
+    else
+        echo "  gen_filelist: still running..."
+    fi
+    if [ -n "$FAILURES" ]; then
+        echo "  *** FAILURES DETECTED: $FAILURES ***"
+    else
+        echo "  No failures detected"
+    fi
+    echo "---"
+}
+
+echo "Monitor started @ $(date '+%H:%M:%S'). Polling every 5 min."
+echo "WORKAREA=$WORKAREA"
+echo "---"
+while true; do
+    check_status
+    sleep 300
+done
+EOF
+chmod +x /tmp/monitor_build_hnguy11.sh
+```
+
+**Deploy** (run in async bash, shellId="monitor"):
+```bash
+bash /tmp/monitor_build_hnguy11.sh
+```
+
+**Read output** (use `read_bash` with shellId="monitor" periodically, or when user asks for status):
+```bash
+# After each poll interval, read_bash with shellId="monitor" to get latest output
+```
+
+**Stop** when build completes or user asks to stop: `stop_bash(shellId="monitor")`
+
+**CRITICAL bug in failure detection**: Do NOT use `grep -rl "Exit Status.*:[^0]"` — the pattern `[^0]` matches any non-'0' character, including spaces. Since the format is `Exit Status    :  0` (with spaces), the pattern matches the spaces before `0` and generates false positives on every passing stage. Always use `"Exit Status.*:  *[1-9]"` which requires an actual non-zero digit.
+
+---
+
+#### Option B: Background Monitor Script (for long-running builds / overnight)
 
 **Layer 1: Background monitor script**
 - Runs via `nohup`, survives terminal/conversation disconnects
