@@ -187,6 +187,25 @@ tags: [patterns, failures, categories, recurring, classification]
   - `flows/grdlbuild/resources.ini` — named resource definitions
   - `flows/grdlbuild/ttlbx_n2p/emu/sle/build.gradle.kts` — task definitions referencing resources
 
+### Pattern 24: Stale Hotfix `.ref` Files — `hotfix_file_check` Fails
+
+- **Phase:** BUILD (pre-Gradle gate — runs before any shadow files are produced)
+- **Symptoms:** `HOTFIX is stale, please reapply patch` in `common.hotfix_file_check.log`; all downstream tasks never start; shadow file count stays at 0 after build exits
+- **Description:** `hotfix_tracker.py --file_check` compares each hotfix's `.ref` snapshot against the current upstream release file. If the upstream IP was re-dropped (same release tag, updated content), the `.ref` no longer matches and the check fails. This is common after a PCD or Hub IP re-drop mid-WW.
+- **Detection:**
+  ```bash
+  grep "HOTFIX is stale" $WORKAREA/output/grdlbuild/logs/common.hotfix_file_check.log
+  # Each line shows both the stale hotfix file and its .ref path
+  ```
+- **Critical relaunch rule:** Shadow file count after this failure is **0**. Using `-id` with 0 shadow files causes a silent Gradle no-op (build exits without submitting any NB jobs). **Always use plain `-nb` to relaunch after fixing stale hotfixes.**
+- **General Fix:**
+  1. For each stale hotfix: copy new upstream file over `.ref`
+  2. Rebase the hotfix file (no extension) against the new upstream, preserving original hotfix modifications
+  3. Verify: `hotfix_tracker.py --file_check` must show PASSED for all
+  4. Relaunch: `grdlbuild <TARGET> -nb` (no `-id`)
+- **Files to Check:** `integration/hotfix/rtl/*/` (all `.ref` files and their matching hotfix files); `integration/hotfix/hotfix_suite.cfg` (upstream release path per IP)
+- **Full remediation procedure:** See `sle-build-iterative-build-monitor-fix.md` → Phase 0: common.hotfix_file_check
+
 ---
 
 ## Phase Detection Scoring Reference

@@ -139,6 +139,44 @@ grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb -id
 ### Step 2: Monitor Build Phases
 The build proceeds through these phases in order. Monitor each one:
 
+#### Phase 0: common.hotfix_file_check (pre-Gradle gate, ~1 min)
+
+This Gradle task runs **before any shadow files are produced** — it is one of the very first tasks.
+Its log is at `$WORKAREA/output/grdlbuild/logs/common.hotfix_file_check.log`.
+
+```bash
+# Check for stale hotfix errors
+grep "HOTFIX is stale\|FAILED\|PASSED" $WORKAREA/output/grdlbuild/logs/common.hotfix_file_check.log
+```
+
+**If it fails** with `HOTFIX is stale, please reapply patch`:
+
+> ⚠️ Shadow file count after this failure is **0** — do NOT use `-id` to relaunch. Use plain `-nb`.
+
+Root cause: An upstream IP release was re-dropped with updated content after the hotfix `.ref` file
+was captured. The `.ref` file is a snapshot of upstream at hotfix creation time; when upstream
+changes, `.ref` no longer matches and `hotfix_file_check` fails.
+
+**Remediation steps:**
+1. Identify all stale files:
+   ```bash
+   grep "HOTFIX is stale" $WORKAREA/output/grdlbuild/logs/common.hotfix_file_check.log
+   # Each line names both the hotfix file (no ext) and its .ref counterpart
+   ```
+2. For each stale hotfix under `integration/hotfix/rtl/<IP>/`:
+   a. Find the upstream release path (check `integration/hotfix/hotfix_suite.cfg` or the first line of the `.ref` file)
+   b. Copy the new upstream file over the `.ref`: `cp <upstream-path>/<file> <hotfix-dir>/<file>.ref`
+   c. Diff old `.ref` vs new upstream to understand what changed: `diff <old-ref-backup> <new-upstream>`
+   d. Apply the same changes to the hotfix file (no extension), preserving the original hotfix modifications
+3. Verify all hotfixes pass: `hotfix_tracker.py --file_check` — must show PASSED for all
+4. Relaunch with plain `-nb` (NOT `-id`): `grdlbuild <TARGET> -nb`
+
+**Rebase complexity notes** (from ww19a PCD re-drop, May 2026):
+- If upstream only added new lines in sections the hotfix doesn't touch → trivial: copy new upstream as hotfix file, re-apply the original substitution/patch
+- If upstream restructured the same section the hotfix modifies → 3-way merge required: reconstruct old upstream from old `.ref`, compute diff (old→hotfix), apply that diff to new upstream
+- For files where upstream was completely restructured (e.g., `Makefile.cfg` converted to `include Common_Makefile_zebu.cfg` style): keep hotfix file as-is (full replacement), only update `.ref`. Risk: new common file may introduce variables that the old hotfix file does not set — watch for build failures downstream.
+- For `pcd.pm` (emurun plugin): new upstream may add new config options or restructure if/else blocks in the same region the hotfix modifies `$ENV{'PCD_MODEL_ROOT'}` — perform full 3-way merge and ensure both branches of any new if/else use the correct env var.
+
 #### Phase 1: emu_gen (Pre-compilation actions, ~2-5 min)
 ```bash
 # Check action pass/fail counts
@@ -465,9 +503,20 @@ grdlbuild ttlbx_n2p:emu:fpga:pkg_chpr_cfgr_p2e0_816_fast_vcs -nb -id
 ```
 
 **`-id` (ignore-deps) flag rules for TTL builds:**
-- **USE `-id`** whenever any upstream NB/DVB tasks have already completed (jem, vcssimmpp, cpp, analyze, fe_be, or any combination) — `-id` tells Gradle to skip those tasks and start from the first incomplete one
-- **USE `-id`** after applying a fix to a stage that failed, when all prior stages passed
+
+> ⚠️ **CRITICAL — Check shadow file count BEFORE deciding whether to use `-id`:**
+> ```bash
+> ls $WORKAREA/.shadow/ | wc -l   # If 0 → use plain -nb.  If >0 → use -nb -id.
+> ```
+> Using `-id` with 0 shadow files causes a silent Gradle state-tracking failure: the build appears
+> to launch but exits immediately without dispatching any NB jobs and without creating a new nbtask
+> file. No work is done and no error is printed — it silently no-ops. This is easy to miss.
+> **Always run the shadow count check before every relaunch.**
+
+- **USE `-id`** whenever shadow file count > 0 AND any upstream NB/DVB tasks have already completed (jem, vcssimmpp, cpp, analyze, fe_be, or any combination) — `-id` tells Gradle to skip tasks whose output (shadow file) already exists
+- **USE `-id`** after applying a fix to a stage that failed, when all prior stages passed and their shadow files exist
 - **NEVER use `-id`** on the very first build — no completed tasks exist yet
+- **NEVER use `-id`** when shadow file count is 0 — even if a prior build was attempted and failed early (e.g., at `common.hotfix_file_check`, which runs before any Gradle shadow files are produced), shadow count will be 0. Use plain `-nb` for a full fresh start.
 - **NEVER use `-id`** after changing RTL source files, `tool.cth`, `cfg/compute.cth`, or filelists that affect upstream stages — those upstream stages must re-run
 
 **`-nb` flag**: ALWAYS include `-nb` for TTL builds. It submits DVB sub-tasks (jem, vcssimmpp, cpp, ZSE5 elab) to the NB queue. Omitting it causes those tasks to run on the login node (not allowed).
