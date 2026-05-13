@@ -510,43 +510,55 @@ Deploy a polling loop directly in the agent conversation using an **async bash s
 
 **Script template** (write to `/tmp/monitor_build_hnguy11.sh`, then run async):
 
+> **CRITICAL**: Do NOT use `$WORKAREA/.shadow/` — that path does not exist. The shadow files are inside the ZSE5 output directory, not the workarea root. Use the model-specific path below.
+
 ```bash
 cat > /tmp/monitor_build_hnguy11.sh << 'EOF'
 #!/bin/bash
 WORKAREA="<EXACT_WORKAREA_PATH>"
+MODEL="<EMU_MODEL>"   # e.g., pkg_chpr_cfgr_p2e0_816_fast
+DUT="ttlbx_n2p"       # e.g., ttlbx_n2p or ttlhm_n2p
 LOGDIR="$WORKAREA/output/grdlbuild/logs"
+# CRITICAL: shadow files are in the ZSE5 output dir, NOT $WORKAREA/.shadow/
+ZSE5_SHADOW="$WORKAREA/output/$DUT/emu/zebu_zebu/$MODEL/zse5/.shadow"
+ZSE5_ZCUI="$WORKAREA/output/$DUT/emu/zebu_zebu/$MODEL/zse5/zcui.work"
 POLL=0
 
 check_status() {
     POLL=$((POLL+1))
     TS=$(date '+%H:%M:%S')
-    SHADOW_COUNT=$(ls $WORKAREA/.shadow/ 2>/dev/null | wc -l)
-    SHADOWS=$(ls $WORKAREA/.shadow/ 2>/dev/null | sort | tr '\n' ' ')
 
-    # CRITICAL: Use ": *[1-9]" NOT "[^0]" — space before 0 is NOT a digit, would cause false positives
+    # grdlbuild-level failures
+    # CRITICAL: Use ": *[1-9]" NOT "[^0]" — space before 0 causes false positives
     FAILURES=$(grep -rl "Exit Status.*:  *[1-9]" $LOGDIR/*.log 2>/dev/null | xargs -I{} basename {} 2>/dev/null)
 
-    # gen_filelist result
-    GF_DONE=$(grep "Finishing time" $LOGDIR/ttlbx_n2p.filelists_rtl.gen_filelist.log 2>/dev/null | tail -1)
-    GF_EXIT=$(grep "Exit Status" $LOGDIR/ttlbx_n2p.filelists_rtl.gen_filelist.log 2>/dev/null | tail -1)
+    # ZSE5 internal shadow progress (spark_co -> override_vcs_home -> ... -> emu_gen)
+    SHADOW_COUNT=$(ls "$ZSE5_SHADOW/" 2>/dev/null | wc -l)
+    SHADOWS=$(ls "$ZSE5_SHADOW/" 2>/dev/null | sort | tr '\n' ' ')
 
-    echo "=== POLL #$POLL @ $TS === shadows=$SHADOW_COUNT"
-    [ -n "$SHADOWS" ] && echo "  Completed: $SHADOWS"
-    if [ -n "$GF_DONE" ]; then
-        echo "  gen_filelist: $GF_EXIT"
-    else
-        echo "  gen_filelist: still running..."
-    fi
+    # zCui phase (once zcui.work appears)
+    ZCUI_PHASE=$(grep -E "stage|Bundle|FAILED|PASSED" "$ZSE5_ZCUI/zCui.log" 2>/dev/null | tail -3)
+
+    # ZSE grdlbuild task exit status
+    ZSE_LOG="$LOGDIR/${DUT}.emu.sle.${MODEL}_zse.log"
+    ZSE_EXIT=$(grep "Exit Status" "$ZSE_LOG" 2>/dev/null | tail -1)
+
+    echo "=== POLL #$POLL @ $TS === ZSE5 shadows=$SHADOW_COUNT"
+    [ -n "$SHADOWS" ] && echo "  ZSE5 stages done: $SHADOWS"
+    [ -n "$ZSE_EXIT" ] && echo "  ZSE task: $ZSE_EXIT"
+    [ -n "$ZCUI_PHASE" ] && echo "  zCui: $ZCUI_PHASE"
+
     if [ -n "$FAILURES" ]; then
         echo "  *** FAILURES DETECTED: $FAILURES ***"
     else
-        echo "  No failures detected"
+        echo "  No grdlbuild failures"
     fi
     echo "---"
 }
 
 echo "Monitor started @ $(date '+%H:%M:%S'). Polling every 5 min."
 echo "WORKAREA=$WORKAREA"
+echo "ZSE5_SHADOW=$ZSE5_SHADOW"
 echo "---"
 while true; do
     check_status
